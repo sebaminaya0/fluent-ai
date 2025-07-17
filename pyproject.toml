@@ -1,0 +1,15 @@
+[project]
+name = "fluen-ai"
+version = "0.1.0"
+description = "AI-powered speech recognition and text-to-speech application"
+requires-python = ">=3.13"
+dependencies = [
+    "SpeechRecognition",
+    "pyaudio",
+    "transformers",
+    "torch",
+    "gTTS",
+    "pygame",
+    "openai-whisper @ git+https://github.com/openai/whisper.git",
+    "sentencepiece>=0.2.0",
+]
