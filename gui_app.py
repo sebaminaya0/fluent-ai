@@ -48,6 +48,18 @@ class FluentAIGUI:
         self.whisper_model = None
         self.translator_es_en = None
         self.translator_en_es = None
+        self.translator_es_de = None
+        self.translator_de_es = None
+        self.translator_es_fr = None
+        self.translator_fr_es = None
+        self.translator_en_de = None
+        self.translator_de_en = None
+        self.translator_en_fr = None
+        self.translator_fr_en = None
+        
+        # Variables para selección de idiomas
+        self.source_language = tk.StringVar(value='auto')
+        self.target_language = tk.StringVar(value='auto')
         
         # Crear la interfaz
         self.create_ui()
@@ -64,9 +76,55 @@ class FluentAIGUI:
                               font=('Arial', 24, 'bold'), bg='#f0f0f0', fg='#2c3e50')
         title_label.pack()
         
-        subtitle_label = tk.Label(title_frame, text="Español ↔ English", 
+        subtitle_label = tk.Label(title_frame, text="Español • English • Deutsch • Français", 
                                  font=('Arial', 14), bg='#f0f0f0', fg='#7f8c8d')
         subtitle_label.pack()
+        
+        # Frame para selección de idiomas
+        language_frame = tk.Frame(self.root, bg='#f0f0f0')
+        language_frame.pack(pady=10)
+        
+        # Selector de idioma de origen
+        source_frame = tk.Frame(language_frame, bg='#f0f0f0')
+        source_frame.pack(side=tk.LEFT, padx=20)
+        
+        tk.Label(source_frame, text="Idioma de origen:", 
+                font=('Arial', 11, 'bold'), bg='#f0f0f0', fg='#2c3e50').pack()
+        
+        self.source_combo = ttk.Combobox(source_frame, textvariable=self.source_language, 
+                                        values=['auto', 'es', 'en', 'de', 'fr'],
+                                        state='readonly', width=15)
+        self.source_combo.pack(pady=5)
+        
+        # Mapeo de códigos a nombres
+        self.language_names = {
+            'auto': '🔄 Detectar automáticamente',
+            'es': '🇪🇸 Español',
+            'en': '🇺🇸 English',
+            'de': '🇩🇪 Deutsch',
+            'fr': '🇫🇷 Français'
+        }
+        
+        # Actualizar el combobox con nombres legibles
+        self.source_combo.config(values=list(self.language_names.values()))
+        self.source_combo.set(self.language_names['auto'])
+        
+        # Selector de idioma de destino
+        target_frame = tk.Frame(language_frame, bg='#f0f0f0')
+        target_frame.pack(side=tk.RIGHT, padx=20)
+        
+        tk.Label(target_frame, text="Idioma de destino:", 
+                font=('Arial', 11, 'bold'), bg='#f0f0f0', fg='#2c3e50').pack()
+        
+        self.target_combo = ttk.Combobox(target_frame, textvariable=self.target_language, 
+                                        values=list(self.language_names.values()),
+                                        state='readonly', width=15)
+        self.target_combo.pack(pady=5)
+        self.target_combo.set(self.language_names['auto'])
+        
+        # Vincular eventos para actualizar restricciones
+        self.source_combo.bind('<<ComboboxSelected>>', self.update_target_options)
+        self.target_combo.bind('<<ComboboxSelected>>', self.update_source_options)
         
         # Frame para los botones de control
         control_frame = tk.Frame(self.root, bg='#f0f0f0')
@@ -145,6 +203,57 @@ class FluentAIGUI:
         self.progress_bar = ttk.Progressbar(self.status_frame, variable=self.progress_var, 
                                            maximum=100, length=300)
         
+    def get_language_code(self, display_name):
+        """Convierte nombre de idioma a código"""
+        for code, name in self.language_names.items():
+            if name == display_name:
+                return code
+        return 'auto'
+        
+    def update_target_options(self, event=None):
+        """Actualiza las opciones de idioma de destino según el origen seleccionado"""
+        source_code = self.get_language_code(self.source_combo.get())
+        
+        if source_code == 'de':  # Alemán
+            # Alemán solo puede traducir a español o inglés
+            available_targets = ['auto', 'es', 'en']
+        elif source_code == 'fr':  # Francés
+            # Francés solo puede traducir a español o inglés
+            available_targets = ['auto', 'es', 'en']
+        else:
+            # Español, inglés o auto pueden traducir a cualquiera
+            available_targets = ['auto', 'es', 'en', 'de', 'fr']
+            
+        target_options = [self.language_names[code] for code in available_targets]
+        self.target_combo.config(values=target_options)
+        
+        # Si la selección actual no está disponible, cambiar a auto
+        current_target = self.get_language_code(self.target_combo.get())
+        if current_target not in available_targets:
+            self.target_combo.set(self.language_names['auto'])
+            
+    def update_source_options(self, event=None):
+        """Actualiza las opciones de idioma de origen según el destino seleccionado"""
+        target_code = self.get_language_code(self.target_combo.get())
+        
+        if target_code == 'de':  # Alemán
+            # Solo español o inglés pueden traducir a alemán
+            available_sources = ['auto', 'es', 'en']
+        elif target_code == 'fr':  # Francés
+            # Solo español o inglés pueden traducir a francés
+            available_sources = ['auto', 'es', 'en']
+        else:
+            # Cualquier idioma puede traducir a español, inglés o auto
+            available_sources = ['auto', 'es', 'en', 'de', 'fr']
+            
+        source_options = [self.language_names[code] for code in available_sources]
+        self.source_combo.config(values=source_options)
+        
+        # Si la selección actual no está disponible, cambiar a auto
+        current_source = self.get_language_code(self.source_combo.get())
+        if current_source not in available_sources:
+            self.source_combo.set(self.language_names['auto'])
+        
     def update_status(self, message, color='white'):
         """Actualiza la barra de estado"""
         self.status_label.config(text=message, fg=color)
@@ -177,18 +286,53 @@ class FluentAIGUI:
             
             # Cargar Whisper
             self.message_queue.put(("status", "🔄 Cargando Whisper...", "orange"))
-            self.message_queue.put(("progress_value", 20))
+            self.message_queue.put(("progress_value", 10))
             self.whisper_model = whisper.load_model("base")
             
-            # Cargar traductor español-inglés
+            # Cargar traductores español-inglés
             self.message_queue.put(("status", "🔄 Cargando traductor ES→EN...", "orange"))
-            self.message_queue.put(("progress_value", 60))
+            self.message_queue.put(("progress_value", 20))
             self.translator_es_en = pipeline("translation", model="Helsinki-NLP/opus-mt-es-en")
             
-            # Cargar traductor inglés-español
             self.message_queue.put(("status", "🔄 Cargando traductor EN→ES...", "orange"))
-            self.message_queue.put(("progress_value", 80))
+            self.message_queue.put(("progress_value", 30))
             self.translator_en_es = pipeline("translation", model="Helsinki-NLP/opus-mt-en-es")
+            
+            # Cargar traductores español-alemán
+            self.message_queue.put(("status", "🔄 Cargando traductor ES→DE...", "orange"))
+            self.message_queue.put(("progress_value", 40))
+            self.translator_es_de = pipeline("translation", model="Helsinki-NLP/opus-mt-es-de")
+            
+            self.message_queue.put(("status", "🔄 Cargando traductor DE→ES...", "orange"))
+            self.message_queue.put(("progress_value", 50))
+            self.translator_de_es = pipeline("translation", model="Helsinki-NLP/opus-mt-de-es")
+            
+            # Cargar traductores español-francés
+            self.message_queue.put(("status", "🔄 Cargando traductor ES→FR...", "orange"))
+            self.message_queue.put(("progress_value", 60))
+            self.translator_es_fr = pipeline("translation", model="Helsinki-NLP/opus-mt-es-fr")
+            
+            self.message_queue.put(("status", "🔄 Cargando traductor FR→ES...", "orange"))
+            self.message_queue.put(("progress_value", 70))
+            self.translator_fr_es = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-es")
+            
+            # Cargar traductores inglés-alemán
+            self.message_queue.put(("status", "🔄 Cargando traductor EN→DE...", "orange"))
+            self.message_queue.put(("progress_value", 80))
+            self.translator_en_de = pipeline("translation", model="Helsinki-NLP/opus-mt-en-de")
+            
+            self.message_queue.put(("status", "🔄 Cargando traductor DE→EN...", "orange"))
+            self.message_queue.put(("progress_value", 85))
+            self.translator_de_en = pipeline("translation", model="Helsinki-NLP/opus-mt-de-en")
+            
+            # Cargar traductores inglés-francés
+            self.message_queue.put(("status", "🔄 Cargando traductor EN→FR...", "orange"))
+            self.message_queue.put(("progress_value", 90))
+            self.translator_en_fr = pipeline("translation", model="Helsinki-NLP/opus-mt-en-fr")
+            
+            self.message_queue.put(("status", "🔄 Cargando traductor FR→EN...", "orange"))
+            self.message_queue.put(("progress_value", 95))
+            self.translator_fr_en = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-en")
             
             self.message_queue.put(("progress_value", 100))
             time.sleep(0.5)  # Pequeña pausa para mostrar el 100%
@@ -221,7 +365,14 @@ class FluentAIGUI:
         """Inicia la grabación"""
         self.is_recording = True
         self.record_btn.config(text="🛑 Detener", bg='#e74c3c')
-        self.update_status("🎤 Escuchando... Habla ahora", "yellow")
+        
+        # Mostrar idioma seleccionado en el estado
+        source_code = self.get_language_code(self.source_combo.get())
+        if source_code == 'auto':
+            self.update_status("🎤 Escuchando... Habla ahora (detección automática)", "yellow")
+        else:
+            lang_name = self.language_names[source_code]
+            self.update_status(f"🎤 Escuchando... Habla en {lang_name}", "yellow")
         
         # Limpiar textos anteriores
         self.original_text.delete(1.0, tk.END)
@@ -244,31 +395,54 @@ class FluentAIGUI:
             with sr.Microphone() as source:
                 self.recognizer.adjust_for_ambient_noise(source, duration=1)
                 
-                # Escuchar audio
-                audio = self.recognizer.listen(source, timeout=10, phrase_time_limit=8)
+                # Escuchar audio con tiempo extendido para capturar oraciones completas
+                audio = self.recognizer.listen(source, timeout=15, phrase_time_limit=12)
                 
             if not self.is_recording:
                 return
                 
-            self.message_queue.put(("status", "🔍 Procesando con Whisper...", "orange"))
+            # Mostrar estado de procesamiento más detallado
+            source_code = self.get_language_code(self.source_combo.get())
+            if source_code == 'auto':
+                self.message_queue.put(("status", "🔍 Procesando con Whisper (detección automática)...", "orange"))
+            else:
+                lang_name = self.language_names[source_code]
+                self.message_queue.put(("status", f"🔍 Procesando con Whisper ({lang_name})...", "orange"))
             
             # Procesar con Whisper
             texto_transcrito, idioma_detectado = self.process_with_whisper(audio)
             
             if texto_transcrito:
                 self.message_queue.put(("original_text", texto_transcrito))
-                self.message_queue.put(("status", f"🔄 Traduciendo ({idioma_detectado})...", "orange"))
                 
-                # Traducir
-                texto_traducido, idioma_destino = self.translate_text(texto_transcrito, idioma_detectado)
-                
-                if texto_traducido:
-                    self.current_translation = texto_traducido
-                    self.message_queue.put(("translated_text", texto_traducido))
-                    self.message_queue.put(("status", "✅ Traducción completada", "lightgreen"))
-                    self.message_queue.put(("enable_play", True))
+                # Determinar idioma de origen basado en selección del usuario
+                source_code = self.get_language_code(self.source_combo.get())
+                if source_code == 'auto':
+                    idioma_origen = idioma_detectado
+                    print(f"Usando idioma detectado automáticamente: {idioma_origen}")
                 else:
-                    self.message_queue.put(("status", "❌ Error en la traducción", "red"))
+                    idioma_origen = source_code
+                    print(f"Usando idioma forzado por usuario: {idioma_origen}")
+                
+                # Determinar idioma de destino
+                target_code = self.get_language_code(self.target_combo.get())
+                idioma_destino = self.determine_target_language(idioma_origen, target_code)
+                
+                if idioma_destino:
+                    self.message_queue.put(("status", f"🔄 Traduciendo {idioma_origen}→{idioma_destino}...", "orange"))
+                    
+                    # Traducir
+                    texto_traducido = self.translate_text(texto_transcrito, idioma_origen, idioma_destino)
+                    
+                    if texto_traducido:
+                        self.current_translation = texto_traducido
+                        self.message_queue.put(("translated_text", texto_traducido))
+                        self.message_queue.put(("status", "✅ Traducción completada", "lightgreen"))
+                        self.message_queue.put(("enable_play", True))
+                    else:
+                        self.message_queue.put(("status", "❌ Error en la traducción", "red"))
+                else:
+                    self.message_queue.put(("status", "❌ Combinación de idiomas no válida", "red"))
             else:
                 self.message_queue.put(("status", "❌ No se pudo procesar el audio", "red"))
                 
@@ -281,7 +455,7 @@ class FluentAIGUI:
             self.message_queue.put(("reset_record_btn", True))
             
     def process_with_whisper(self, audio):
-        """Procesa el audio con Whisper"""
+        """Procesa el audio con Whisper con configuración mejorada"""
         try:
             print("\n=== INICIO DE PROCESO WHISPER ===")
             
@@ -301,9 +475,38 @@ class FluentAIGUI:
                 print("ERROR: El archivo temporal no se creó")
                 return None, None
             
+            # Determinar idioma para forzar en Whisper
+            source_code = self.get_language_code(self.source_combo.get())
+            
             # Transcribir con Whisper
             print("Iniciando transcripción con Whisper...")
-            result = self.whisper_model.transcribe(temp_filename)
+            print(f"Idioma seleccionado por usuario: {source_code}")
+            
+            if source_code != 'auto':
+                print(f"Forzando idioma en Whisper: {source_code}")
+                result = self.whisper_model.transcribe(
+                    temp_filename,
+                    language=source_code,
+                    word_timestamps=True,
+                    fp16=False,
+                    temperature=0.0,
+                    best_of=5,
+                    beam_size=5,
+                    patience=2.0,
+                    condition_on_previous_text=True
+                )
+            else:
+                print("Permitiendo detección automática de idioma")
+                result = self.whisper_model.transcribe(
+                    temp_filename,
+                    word_timestamps=True,
+                    fp16=False,
+                    temperature=0.0,
+                    best_of=5,
+                    beam_size=5,
+                    patience=2.0,
+                    condition_on_previous_text=True
+                )
             
             print(f"\nResultado completo de Whisper:")
             print(f"- Texto: '{result['text']}'")
@@ -354,7 +557,7 @@ class FluentAIGUI:
             return None, None
             
     def validate_text(self, texto, idioma_detectado):
-        """Valida que el texto sea válido para español o inglés"""
+        """Valida que el texto sea válido para los idiomas soportados"""
         print(f"\n=== VALIDANDO TEXTO ===")
         print(f"Texto original: '{texto}'")
         print(f"Texto después de strip: '{texto.strip()}'")
@@ -362,14 +565,24 @@ class FluentAIGUI:
         print(f"Idioma detectado: {idioma_detectado}")
         
         # Verificar longitud mínima
-        if len(texto.strip()) < 2:
-            print(f"FALLO: Texto muy corto (menos de 2 caracteres)")
-            print(f"=== FIN VALIDACIÓN (FALLIDO) ===\n")
+        texto_limpio = texto.strip()
+        print(f"\n>>> VERIFICANDO LONGITUD MÍNIMA <<<")
+        print(f"Longitud del texto limpio: {len(texto_limpio)}")
+        print(f"Requisito mínimo: 2 caracteres")
+        
+        if len(texto_limpio) < 2:
+            print(f"❌ FALLO: Texto muy corto (menos de 2 caracteres)")
+            print(f"=== FIN VALIDACIÓN (FALLIDO POR LONGITUD) ===\n")
             return False
+        else:
+            print(f"✅ ÉXITO: Longitud suficiente ({len(texto_limpio)} caracteres)")
             
-        # Verificar caracteres latinos
+        # Verificar caracteres latinos (ampliado para alemán y francés)
+        print(f"\n>>> VERIFICANDO CARACTERES LATINOS <<<")
+        
         caracteres_latinos = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
-                               'áéíóúüñÁÉÍÓÚÜÑ¿¡.,;:!?()[]{}"\'-_ ')
+                               'áéíóúüñÁÉÍÓÚÜÑ¿¡äöüÄÖÜßàâäçèêëïîôùûüÿÀÂÄÇÈÊËÏÎÔÙÛÜŸ'
+                               '.,;:!?()[]{}"\'-_ ')
         
         caracteres_texto = set(texto)
         caracteres_no_latinos = caracteres_texto - caracteres_latinos
@@ -382,16 +595,19 @@ class FluentAIGUI:
             print(f"Caracteres no latinos: {sorted(list(caracteres_no_latinos))}")
             porcentaje_no_latinos = len(caracteres_no_latinos) / len(caracteres_texto)
             print(f"Porcentaje de caracteres no latinos: {porcentaje_no_latinos:.2%}")
+            print(f"Umbral máximo permitido: 20%")
             
             if porcentaje_no_latinos > 0.2:
-                print(f"FALLO: Demasiados caracteres no latinos ({porcentaje_no_latinos:.2%} > 20%)")
-                print(f"=== FIN VALIDACIÓN (FALLIDO) ===\n")
+                print(f"❌ FALLO: Demasiados caracteres no latinos ({porcentaje_no_latinos:.2%} > 20%)")
+                print(f"=== FIN VALIDACIÓN (FALLIDO POR CARACTERES NO LATINOS) ===\n")
                 return False
+            else:
+                print(f"✅ ÉXITO: Porcentaje de caracteres no latinos aceptable ({porcentaje_no_latinos:.2%} <= 20%)")
         else:
-            print(f"✓ Todos los caracteres son latinos")
+            print(f"✅ ÉXITO: Todos los caracteres son latinos")
                 
-        # Verificar idioma detectado (usando códigos ISO)
-        idiomas_validos = ['es', 'en']
+        # Verificar idioma detectado (usando códigos ISO ampliado)
+        idiomas_validos = ['es', 'en', 'de', 'fr']
         print(f"Idiomas válidos: {idiomas_validos}")
         print(f"Idioma detectado: '{idioma_detectado}'")
         
@@ -404,18 +620,72 @@ class FluentAIGUI:
             print(f"=== FIN VALIDACIÓN (FALLIDO) ===\n")
             return False
         
-    def translate_text(self, texto, idioma_origen):
-        """Traduce el texto"""
-        try:
+    def determine_target_language(self, idioma_origen, target_selection):
+        """Determina el idioma de destino basado en la selección y restricciones"""
+        if target_selection == 'auto':
+            # Lógica automática: español <-> inglés por defecto
             if idioma_origen == 'es':
-                resultado = self.translator_es_en(texto)
-                return resultado[0]['translation_text'], 'en'
+                return 'en'
+            elif idioma_origen == 'en':
+                return 'es'
+            elif idioma_origen == 'de':
+                return 'es'  # Alemán por defecto a español
+            elif idioma_origen == 'fr':
+                return 'es'  # Francés por defecto a español
             else:
-                resultado = self.translator_en_es(texto)
-                return resultado[0]['translation_text'], 'es'
+                return 'en'  # Cualquier otro a inglés
+        else:
+            # Verificar si la combinación es válida
+            valid_combinations = {
+                'es': ['en', 'de', 'fr'],
+                'en': ['es', 'de', 'fr'],
+                'de': ['es', 'en'],
+                'fr': ['es', 'en']
+            }
+            
+            if idioma_origen in valid_combinations and target_selection in valid_combinations[idioma_origen]:
+                return target_selection
+            else:
+                return None
+                
+    def translate_text(self, texto, idioma_origen, idioma_destino):
+        """Traduce el texto usando el modelo apropiado"""
+        try:
+            print(f"\n=== TRADUCIENDO ===")
+            print(f"Texto: '{texto}'")
+            print(f"Idioma origen: {idioma_origen}")
+            print(f"Idioma destino: {idioma_destino}")
+            
+            # Mapear combinaciones a traductores
+            translator_map = {
+                ('es', 'en'): self.translator_es_en,
+                ('en', 'es'): self.translator_en_es,
+                ('es', 'de'): self.translator_es_de,
+                ('de', 'es'): self.translator_de_es,
+                ('es', 'fr'): self.translator_es_fr,
+                ('fr', 'es'): self.translator_fr_es,
+                ('en', 'de'): self.translator_en_de,
+                ('de', 'en'): self.translator_de_en,
+                ('en', 'fr'): self.translator_en_fr,
+                ('fr', 'en'): self.translator_fr_en,
+            }
+            
+            translator = translator_map.get((idioma_origen, idioma_destino))
+            if translator:
+                resultado = translator(texto)
+                translation = resultado[0]['translation_text']
+                print(f"Traducción: '{translation}'")
+                print(f"=== FIN TRADUCCIÓN (EXITOSO) ===\n")
+                return translation
+            else:
+                print(f"ERROR: No hay traductor para {idioma_origen} → {idioma_destino}")
+                print(f"=== FIN TRADUCCIÓN (FALLIDO) ===\n")
+                return None
+                
         except Exception as e:
             print(f"Error en traducción: {e}")
-            return None, None
+            print(f"=== FIN TRADUCCIÓN (ERROR) ===\n")
+            return None
             
     def play_translation(self):
         """Reproduce la traducción"""
@@ -432,8 +702,16 @@ class FluentAIGUI:
     def play_audio(self):
         """Reproduce el audio de la traducción"""
         try:
-            # Determinar idioma para TTS
-            idioma_tts = 'es' if self.detect_spanish(self.current_translation) else 'en'
+            # Determinar idioma para TTS basado en la selección de destino
+            target_code = self.get_language_code(self.target_combo.get())
+            
+            if target_code == 'auto':
+                # Detección automática como antes
+                idioma_tts = self.detect_language_for_tts(self.current_translation)
+            else:
+                idioma_tts = target_code
+            
+            print(f"Reproduciendo audio en idioma: {idioma_tts}")
             
             tts = gTTS(text=self.current_translation, lang=idioma_tts, slow=False)
             nombre_archivo = "temp_translation.mp3"
@@ -453,11 +731,48 @@ class FluentAIGUI:
         except Exception as e:
             self.message_queue.put(("status", f"❌ Error reproduciendo: {str(e)}", "red"))
             
-    def detect_spanish(self, texto):
-        """Detecta si el texto está en español"""
-        spanish_words = ['el', 'la', 'de', 'que', 'y', 'es', 'en', 'un', 'una', 'con', 'por', 'para', 'hola', 'gracias', 'sí', 'no', 'dónde', 'cuándo', 'cómo', 'qué']
+    def detect_language_for_tts(self, texto):
+        """Detecta el idioma del texto para TTS"""
         texto_lower = texto.lower()
-        return any(word in texto_lower for word in spanish_words) or any(char in texto_lower for char in ['ñ', 'á', 'é', 'í', 'ó', 'ú', '¿', '¡'])
+        
+        # Palabras y caracteres característicos por idioma
+        spanish_indicators = {
+            'words': ['el', 'la', 'de', 'que', 'y', 'es', 'en', 'un', 'una', 'con', 'por', 'para', 'hola', 'gracias', 'sí', 'no', 'dónde', 'cuándo', 'cómo', 'qué'],
+            'chars': ['ñ', 'á', 'é', 'í', 'ó', 'ú', '¿', '¡']
+        }
+        
+        german_indicators = {
+            'words': ['der', 'die', 'das', 'und', 'ich', 'sie', 'mit', 'für', 'auf', 'von', 'ist', 'war', 'haben', 'werden', 'sein', 'nicht', 'auch', 'aber', 'oder', 'wie'],
+            'chars': ['ä', 'ö', 'ü', 'ß']
+        }
+        
+        french_indicators = {
+            'words': ['le', 'la', 'les', 'et', 'de', 'je', 'tu', 'il', 'elle', 'nous', 'vous', 'ils', 'elles', 'avec', 'pour', 'sur', 'dans', 'mais', 'ou', 'où', 'comment'],
+            'chars': ['à', 'â', 'ä', 'ç', 'è', 'ê', 'ë', 'ï', 'î', 'ô', 'ù', 'û', 'ü', 'ÿ']
+        }
+        
+        # Calcular puntuaciones para cada idioma
+        spanish_score = sum(1 for word in spanish_indicators['words'] if word in texto_lower) + \
+                       sum(1 for char in spanish_indicators['chars'] if char in texto_lower)
+        
+        german_score = sum(1 for word in german_indicators['words'] if word in texto_lower) + \
+                      sum(1 for char in german_indicators['chars'] if char in texto_lower)
+        
+        french_score = sum(1 for word in french_indicators['words'] if word in texto_lower) + \
+                      sum(1 for char in french_indicators['chars'] if char in texto_lower)
+        
+        # Determinar idioma basado en la puntuación más alta
+        scores = {'es': spanish_score, 'de': german_score, 'fr': french_score}
+        max_score = max(scores.values())
+        
+        if max_score == 0:
+            return 'en'  # Por defecto inglés si no hay indicadores
+        
+        for lang, score in scores.items():
+            if score == max_score:
+                return lang
+        
+        return 'en'  # Fallback a inglés
         
     def check_message_queue(self):
         """Verifica la cola de mensajes y actualiza la UI"""
