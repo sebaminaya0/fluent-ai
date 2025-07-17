@@ -1,6 +1,6 @@
 [project]
 name = "fluen-ai"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI-powered speech recognition and text-to-speech application"
 requires-python = ">=3.13"
 dependencies = [
@@ -12,4 +12,12 @@ dependencies = [
     "pygame",
     "openai-whisper @ git+https://github.com/openai/whisper.git",
     "sentencepiece>=0.2.0",
+    "webrtcvad>=2.0.10",
+    "pydub>=0.25.1",
+    "numpy",
+    "librosa",
+    "soundfile",
 ]
+
+[tool.setuptools.packages.find]
+include = ["fluentai"]
