@@ -1,10 +1,11 @@
-import speech_recognition as sr
-from transformers.pipelines import pipeline
-from gtts import gTTS
 import os
-import pygame
-import time
 import re
+import time
+
+import pygame
+import speech_recognition as sr
+from gtts import gTTS
+from transformers.pipelines import pipeline
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 
@@ -31,20 +32,20 @@ def detectar_idioma(texto):
     """
     # Palabras comunes en español
     palabras_espanol = ['el', 'la', 'de', 'que', 'y', 'es', 'en', 'un', 'una', 'con', 'por', 'para', 'como', 'mi', 'tu', 'hola', 'gracias', 'por favor', 'sí', 'no', 'donde', 'cuando', 'porque', 'muy', 'más', 'menos', 'bueno', 'malo', 'grande', 'pequeño']
-    
+
     # Palabras comunes en inglés
     palabras_ingles = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'hello', 'hi', 'thank', 'you', 'please', 'yes', 'no', 'where', 'when', 'because', 'very', 'more', 'less', 'good', 'bad', 'big', 'small']
-    
+
     texto_lower = texto.lower()
     palabras_texto = re.findall(r'\b\w+\b', texto_lower)
-    
+
     puntos_espanol = sum(1 for palabra in palabras_texto if palabra in palabras_espanol)
     puntos_ingles = sum(1 for palabra in palabras_texto if palabra in palabras_ingles)
-    
+
     # También verificar caracteres específicos del español
     if any(char in texto_lower for char in ['ñ', 'á', 'é', 'í', 'ó', 'ú', '¿', '¡']):
         puntos_espanol += 2
-    
+
     if puntos_espanol > puntos_ingles:
         return 'es'
     elif puntos_ingles > puntos_espanol:
@@ -67,13 +68,13 @@ def grabar_y_reconocer_voz():
         print("\nDi algo en español o inglés...")
         # Ajuste más estricto para el ruido ambiental
         recognizer.adjust_for_ambient_noise(source, duration=1)
-        
+
         # Configurar umbrales más altos para evitar falsos positivos
         recognizer.energy_threshold = 4000  # Umbral de energía más alto
         recognizer.dynamic_energy_threshold = True
         recognizer.dynamic_energy_adjustment_damping = 0.15
         recognizer.dynamic_energy_ratio = 1.5
-        
+
         # Escuchar con timeout y tiempo mínimo de frase
         try:
             audio = recognizer.listen(source, timeout=10, phrase_time_limit=8)
@@ -85,15 +86,15 @@ def grabar_y_reconocer_voz():
     try:
         print("Reconociendo tu voz...")
         texto_es = recognizer.recognize_google(audio, language="es-ES")  # type: ignore
-        
+
         # Intentar también en inglés
         try:
             texto_en = recognizer.recognize_google(audio, language="en-US")  # type: ignore
-            
+
             # Detectar cuál es más probable basado en el contenido
             idioma_detectado_es = detectar_idioma(texto_es)
             idioma_detectado_en = detectar_idioma(texto_en)
-            
+
             if idioma_detectado_es == 'es' and idioma_detectado_en == 'en':
                 # Ambos son consistentes, elegir el más largo (más probable)
                 if len(texto_es.split()) >= len(texto_en.split()):
@@ -104,23 +105,23 @@ def grabar_y_reconocer_voz():
                 texto_final, idioma_final = texto_es, 'es'
             else:
                 texto_final, idioma_final = texto_en, 'en'
-                
+
         except:
             texto_final, idioma_final = texto_es, detectar_idioma(texto_es)
-            
+
         # Validar que el texto tenga sentido y no sea demasiado corto
         if len(texto_final.strip()) < 2 or len(texto_final.split()) < 1:
             print("Texto demasiado corto o sin contenido. Intenta de nuevo.")
             return None, None
-            
+
         # Filtrar texto que parece ser solo ruido
         if all(len(palabra) <= 2 for palabra in texto_final.split()):
             print("Texto parece ser ruido. Intenta hablar más claro.")
             return None, None
-        
+
         print(f"Texto reconocido ({idioma_final}): '{texto_final}'")
         return texto_final, idioma_final
-        
+
     except sr.UnknownValueError:
         print("Lo siento, no pude entender lo que dijiste.")
         return None, None
@@ -134,23 +135,23 @@ def traducir_texto(texto_a_traducir, idioma_origen):
     """
     if not texto_a_traducir:
         return None, None
-    
+
     print("Traduciendo texto...")
     try:
         # Determinar dirección de traducción
         if idioma_origen == 'es':
-            print(f"Traduciendo de español a inglés...")
+            print("Traduciendo de español a inglés...")
             resultado = translator_es_en(texto_a_traducir)
             idioma_destino = 'en'
         else:
-            print(f"Traduciendo de inglés a español...")
+            print("Traduciendo de inglés a español...")
             resultado = translator_en_es(texto_a_traducir)
             idioma_destino = 'es'
-        
+
         texto_traducido = resultado[0]['translation_text']
         print(f"Texto traducido: '{texto_traducido}'")
         return texto_traducido, idioma_destino
-        
+
     except Exception as e:
         print(f"Ocurrió un error durante la traducción: {e}")
         return None, None
@@ -175,7 +176,7 @@ def hablar_texto(texto_a_hablar, idioma='en'):
         # Esperar a que la música termine de reproducirse
         while pygame.mixer.music.get_busy():
             pygame.time.Clock().tick(10)
-        
+
         # Pygame puede bloquear el archivo, así que lo descargamos y esperamos un poco
         pygame.mixer.music.unload()
         time.sleep(0.5)
@@ -197,16 +198,16 @@ if __name__ == "__main__":
         while True:
             # Paso 1: Escuchar y transcribir con detección de idioma
             texto_original, idioma_origen = grabar_y_reconocer_voz()
-            
+
             if texto_original is None:
                 continue
 
             # Paso 2: Traducir el texto
             texto_traducido, idioma_destino = traducir_texto(texto_original, idioma_origen)
-            
+
             if texto_traducido is None:
                 continue
-            
+
             # Paso 3: Hablar la traducción
             hablar_texto(texto_traducido, idioma_destino)
 

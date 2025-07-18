@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.13"]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libportaudio2 libasound2-dev
+    
+    - name: Sync dependencies with uv
+      run: |
+        uv sync --dev
+    
+    - name: Lint with ruff
+      run: |
+        uv run ruff check .
+    
+    - name: Format check with ruff
+      run: |
+        uv run ruff format --check .
+    
+    - name: Run VAD unit tests
+      run: |
+        uv run python -m pytest tests/test_silence_detection.py -v
+    
+    - name: Run ASR round-trip tests (initialization)
+      run: |
+        uv run python -m pytest tests/test_asr_roundtrip.py::TestASRRoundTrip::test_asr_thread_initialization -v
+    
+    - name: Run model loading tests
+      run: |
+        uv run python -m pytest tests/test_lazy_model_loader.py -v
+    
+    - name: Run benchmark tests
+      run: |
+        uv run python -m pytest tests/test_benchmarks.py -v

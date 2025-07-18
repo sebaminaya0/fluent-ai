@@ -1,0 +1,19 @@
+es:
+  whisper: 'spanish'
+  tts: 'es'
+
+en:
+  whisper: 'english'
+  tts: 'en'
+
+pt:
+  whisper: 'portuguese'
+  tts: 'pt'
+
+de:
+  whisper: 'german'
+  tts: 'de'
+
+fr:
+  whisper: 'french'
+  tts: 'fr'

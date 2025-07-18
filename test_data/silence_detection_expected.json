@@ -1,0 +1,55 @@
+{
+  "short_silence.wav": {
+    "description": "Audio with 500ms silence in middle",
+    "expected_silences": [
+      {
+        "start": 1.0,
+        "duration": 0.5,
+        "end": 1.5
+      }
+    ]
+  },
+  "long_silence.wav": {
+    "description": "Audio with 1.5s silence in middle",
+    "expected_silences": [
+      {
+        "start": 1.0,
+        "duration": 1.5,
+        "end": 2.5
+      }
+    ]
+  },
+  "multiple_silences.wav": {
+    "description": "Audio with multiple silence periods",
+    "expected_silences": [
+      {
+        "start": 0.5,
+        "duration": 0.8,
+        "end": 1.3
+      },
+      {
+        "start": 1.8,
+        "duration": 1.2,
+        "end": 3.0
+      }
+    ]
+  },
+  "no_silence.wav": {
+    "description": "Continuous speech with no significant silence",
+    "expected_silences": []
+  },
+  "noisy_silence.wav": {
+    "description": "Silence with background noise",
+    "expected_silences": [
+      {
+        "start": 1.0,
+        "duration": 1.0,
+        "end": 2.0
+      }
+    ]
+  },
+  "very_quiet_speech.wav": {
+    "description": "Very quiet speech that might be detected as silence",
+    "expected_silences": []
+  }
+}

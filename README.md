@@ -46,6 +46,16 @@ A real-time bidirectional AI translator that supports multiple language pairs (S
 - **Offline Capability**: Core speech recognition works without internet connection
 - **Threaded Processing**: Non-blocking GUI with background processing
 
+### 🗄️ **Database Logging & Analytics**
+- **Comprehensive Logging**: All translation operations logged to DuckDB database
+- **Thread-Safe Recording**: Detailed logs for audio capture, ASR/translation, and playback threads
+- **Performance Metrics**: Millisecond-precision latency tracking across all operations
+- **Error Tracking**: Comprehensive error aggregation and analysis
+- **Session Management**: Unique session IDs for grouping related operations
+- **Rich Metadata**: JSON storage for detailed operation context
+- **Analytics Tools**: Built-in database viewer and query capabilities
+- **Live Monitoring**: Real-time dashboard showing queue states and processing activity
+
 ## 🔧️ Technologies Used
 
 - **GUI Framework**: Tkinter for cross-platform graphical interface
@@ -57,6 +67,9 @@ A real-time bidirectional AI translator that supports multiple language pairs (S
 - **Language Processing**: `sentencepiece` for tokenization
 - **Language Validation**: Enhanced algorithms to filter non-Latin scripts with proper language code mapping
 - **Threading**: Python threading for non-blocking GUI operations
+- **Database**: DuckDB for comprehensive logging and analytics
+- **Real-time Audio**: BlackHole virtual audio device for meeting integration
+- **Voice Activity Detection**: WebRTC VAD for intelligent audio processing
 
 ## 📋 Requirements
 
@@ -102,6 +115,46 @@ uv run main.py
 **Whisper Version** with OpenAI Whisper:
 ```bash
 uv run main_whisper.py
+```
+
+### 🎙️ **Real-Time Translation System**
+
+**Live Monitor with Database Logging**:
+```bash
+uv run live_monitor_with_db.py
+```
+
+**BlackHole Audio Setup** (for meeting integration):
+```bash
+uv run examples/blackhole_setup.py
+```
+
+> **Note**: The real-time system provides continuous translation for meetings and calls with comprehensive logging to DuckDB database.
+
+### 🗄️ **Database Logging & Analytics**
+
+**Initialize Database**:
+```bash
+uv run init_database.py
+```
+
+**View Database Contents**:
+```bash
+# View all logs and translations
+uv run view_database.py
+
+# View specific session logs
+uv run view_database.py <session_id>
+```
+
+**Direct Database Queries**:
+```bash
+# Open DuckDB CLI
+duckdb translation_logs.duckdb
+
+# Example queries
+SELECT * FROM translation_logs ORDER BY timestamp DESC LIMIT 10;
+SELECT * FROM translations WHERE total_latency_ms > 1000;
 ```
 
 > **Note**: The GUI version provides the best user experience with visual feedback and easy controls. The Whisper command-line version offers better accuracy and offline capability.
@@ -182,23 +235,35 @@ chunk_size = 1024  # Optimal chunk size
 
 ```
 fluent-ai/
-├── gui_app.py           # Main GUI application with Tkinter (Recommended)
-├── main.py              # Command-line version with Google Speech Recognition
-├── main_whisper.py      # Command-line version with OpenAI Whisper
+├── gui_app.py                    # Main GUI application with Tkinter (Recommended)
+├── main.py                       # Command-line version with Google Speech Recognition
+├── main_whisper.py               # Command-line version with OpenAI Whisper
+├── live_monitor_with_db.py       # Real-time translation monitor with database logging
+├── init_database.py              # Database initialization and testing
+├── view_database.py              # Database viewer and analytics
+├── audio_capture_thread.py       # Audio capture thread with VAD
 ├── fluentai/
-│   ├── model_loader.py  # Lazy model loading system
+│   ├── model_loader.py           # Lazy model loading system
+│   ├── database_logger.py        # DuckDB logging system
+│   ├── asr_translation_synthesis_thread.py  # ASR, translation, and TTS thread
+│   ├── blackhole_reproduction_thread.py     # BlackHole audio playback thread
 │   └── __init__.py
-├── silence_detector.py  # Advanced silence detection module
-├── pyproject.toml       # Python dependencies
-├── uv.lock             # Lock file with exact versions
-├── .gitignore          # Git ignore rules
-├── .python-version     # Python version specification
-└── README.md           # This file
+├── silence_detector.py           # Advanced silence detection module
+├── translation_logs.duckdb       # DuckDB database file (created after first run)
+├── README_DATABASE.md            # Database system documentation
+├── pyproject.toml               # Python dependencies
+├── uv.lock                      # Lock file with exact versions
+├── .gitignore                   # Git ignore rules
+├── .python-version              # Python version specification
+└── README.md                    # This file
 ```
 
 ## 🔮 Future Enhancements
 
 - [x] Add support for more languages (German, French) ✅
+- [x] Real-time streaming translation ✅
+- [x] Database logging and analytics ✅
+- [x] Live monitoring dashboard ✅
 - [ ] Implement offline translation capabilities
 - [x] Create a graphical user interface ✅
 - [x] Extended audio capture capabilities ✅
@@ -207,8 +272,9 @@ fluent-ai/
 - [ ] Add conversation history to GUI
 - [ ] Implement custom wake words
 - [ ] Add support for batch file translation
-- [ ] Implement real-time streaming translation
 - [ ] Add support for more language pairs (Italian, Portuguese, etc.)
+- [ ] Web interface for remote access
+- [ ] Mobile app companion
 
 ## 🔄 Migration Notes
 

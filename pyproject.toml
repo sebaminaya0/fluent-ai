@@ -8,8 +8,7 @@ dependencies = [
     "pyaudio",
     "transformers",
     "torch",
-    "gTTS",
-    "pygame",
+    "gTTS~=2.5",
     "openai-whisper @ git+https://github.com/openai/whisper.git",
     "sentencepiece>=0.2.0",
     "webrtcvad>=2.0.10",
@@ -17,7 +16,54 @@ dependencies = [
     "numpy",
     "librosa",
     "soundfile",
+    "sounddevice>=0.5.2",
+    "duckdb>=0.9.0",
+]
+
+[project.optional-dependencies]
+rt = [
+    "sounddevice",
+    "webrtcvad-wheels",
+    "pygame",
+    "pydub",
+]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+    "black",
+    "isort",
 ]
 
 [tool.setuptools.packages.find]
 include = ["fluentai"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501", # line too long, handled by black
+    "B008", # do not perform function calls in argument defaults
+    "C901", # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*" = ["D100", "D101", "D102", "D103", "D104"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
