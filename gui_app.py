@@ -9,8 +9,8 @@ from tkinter import messagebox, scrolledtext, ttk
 
 import numpy as np
 import pygame
+import pyttsx3
 import speech_recognition as sr
-from gtts import gTTS
 
 from fluentai.model_loader import LazyModelLoader
 from silence_detector import (
@@ -89,6 +89,11 @@ class FluentAIGUI:
 
         # Iniciar simulación de nivel de micrófono
         self.simulate_microphone_level()
+
+        # Pre-warm Whisper and the default translation model in background threads
+        # so the first recording doesn't trigger a 10-30s freeze
+        self.load_whisper_model()
+        self.preload_models_for_selection()
 
     def create_ui(self):
         # Título principal
@@ -959,31 +964,13 @@ class FluentAIGUI:
         thread.start()
 
     def play_audio(self):
-        """Reproduce el audio de la traducción"""
+        """Reproduce el audio de la traducción (offline, via pyttsx3)"""
         try:
-            # Determinar idioma para TTS basado en la dirección seleccionada
-            src_lang, tgt_lang = self.get_source_and_target_from_direction()
-
-            # Usar el idioma de destino de la dirección seleccionada
-            idioma_tts = tgt_lang
-
-            print(f"Reproduciendo audio en idioma: {idioma_tts}")
-
-            tts = gTTS(text=self.current_translation, lang=idioma_tts, slow=False)
-            nombre_archivo = "temp_translation.mp3"
-            tts.save(nombre_archivo)
-
-            pygame.mixer.music.load(nombre_archivo)
-            pygame.mixer.music.play()
-
-            while pygame.mixer.music.get_busy():
-                time.sleep(0.1)
-
-            pygame.mixer.music.unload()
-            os.remove(nombre_archivo)
-
+            engine = pyttsx3.init()
+            engine.setProperty('rate', 150)
+            engine.say(self.current_translation)
+            engine.runAndWait()
             self.message_queue.put(("status", "✅ Reproducción completada", "lightgreen"))
-
         except Exception as e:
             self.message_queue.put(("status", f"❌ Error reproduciendo: {str(e)}", "red"))
 
@@ -1209,7 +1196,8 @@ class FluentAIGUI:
 
             def on_silence_threshold_exceeded(duration_ms):
                 self.message_queue.put(("status", f"⏹️ Auto-stop: {duration_ms:.0f}ms de silencio", "orange"))
-                # Aquí se podría implementar la lógica de auto-stop
+                if self.is_recording:
+                    self.root.after(0, self.stop_recording)
 
             self.silence_detector.set_callbacks(
                 on_silence_detected=on_silence_detected,
