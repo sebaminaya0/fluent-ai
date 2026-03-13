@@ -105,8 +105,8 @@ class VADProcessor:
                  sample_rate: int = 16000,
                  frame_duration: int = 30,  # ms
                  aggressiveness: int = 2,
-                 voice_threshold_ms: int = 200,
-                 silence_threshold_ms: int = 400):
+                 voice_threshold_ms: int = 100,
+                 silence_threshold_ms: int = 200):
         """
         Initialize VAD processor.
         

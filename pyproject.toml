@@ -9,6 +9,7 @@ dependencies = [
     "transformers",
     "torch",
     "gTTS~=2.5",
+    "pyttsx3>=2.90",
     "openai-whisper @ git+https://github.com/openai/whisper.git",
     "sentencepiece>=0.2.0",
     "webrtcvad>=2.0.10",

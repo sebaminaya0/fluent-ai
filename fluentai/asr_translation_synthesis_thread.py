@@ -8,15 +8,14 @@ Este módulo implementa un hilo para procesamiento de audio en pipeline:
 • Envía los resultados a una cola de salida.
 """
 
-import io
 import logging
 import queue
 import threading
 import time
 
 import numpy as np
+import pyttsx3
 import whisper
-from gtts import gTTS
 from transformers import pipeline
 
 from fluentai.database_logger import db_logger
@@ -41,6 +40,7 @@ class ASRTranslationSynthesisThread(threading.Thread):
         # Models will be loaded in the run method
         self.whisper_model = None
         self.translation_pipeline = None
+        self.tts_engine = None
         
     def set_session_id(self, session_id: str):
         """Set the session ID for database logging."""
@@ -63,6 +63,12 @@ class ASRTranslationSynthesisThread(threading.Thread):
                     device="cpu"
                 )
                 logger.info("Translation pipeline loaded successfully")
+
+            # Initialize offline TTS engine (pyttsx3 uses espeak on Linux, nsss on macOS)
+            logger.info("Initializing offline TTS engine...")
+            self.tts_engine = pyttsx3.init()
+            self.tts_engine.setProperty('rate', 150)  # words per minute
+            logger.info("TTS engine initialized")
         except Exception as e:
             logger.error(f"Error loading models: {e}")
             raise
@@ -151,49 +157,37 @@ class ASRTranslationSynthesisThread(threading.Thread):
                     logger.warning("Empty translation, skipping synthesis")
                     continue
 
-                # Synthesize translated text to speech
+                # Synthesize translated text to speech (offline, via pyttsx3)
                 try:
-                    logger.info(f"Synthesizing speech in {self.dst_lang}: '{translated_text}'")
-                    tts = gTTS(text=translated_text, lang=self.dst_lang)
-
-                    # Save to a file-like object to convert to np.float32 array
-                    buf = io.BytesIO()
-                    tts.write_to_fp(buf)
-                    buf.seek(0)
-
-                    # Convert MP3 data to audio array using pydub
-                    from pydub import AudioSegment
-                    from pydub.playback import play
-                    import tempfile
                     import os
-                    
-                    # Write MP3 bytes to temporary file
-                    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_mp3:
-                        temp_mp3.write(buf.read())
-                        temp_mp3_path = temp_mp3.name
-                    
+                    import tempfile
+
+                    from pydub import AudioSegment as PydubSegment
+
+                    logger.info(f"Synthesizing speech (offline) in {self.dst_lang}: '{translated_text}'")
+
+                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                        temp_wav_path = tmp.name
+
                     try:
-                        # Load MP3 and convert to numpy array
-                        audio_segment = AudioSegment.from_mp3(temp_mp3_path)
-                        
-                        # Convert to 44100 Hz mono (matching BlackHole output)
-                        audio_segment = audio_segment.set_frame_rate(44100).set_channels(1)
-                        
-                        # Convert to numpy array (float32)
-                        audio_fp = np.array(audio_segment.get_array_of_samples(), dtype=np.float32)
-                        
-                        # Normalize to [-1, 1] range
+                        self.tts_engine.save_to_file(translated_text, temp_wav_path)
+                        self.tts_engine.runAndWait()
+
+                        # Load WAV and convert to numpy array at 44100 Hz mono
+                        tts_audio = PydubSegment.from_wav(temp_wav_path)
+                        tts_audio = tts_audio.set_frame_rate(44100).set_channels(1)
+
+                        audio_fp = np.array(tts_audio.get_array_of_samples(), dtype=np.float32)
+
                         if len(audio_fp) > 0:
                             audio_fp = audio_fp / np.max(np.abs(audio_fp))
-                        
-                        # Place in output queue
+
                         self.queue_out.put(audio_fp)
-                        logger.info(f"Audio segment processed and placed in output queue: {len(audio_fp)} samples")
-                        
+                        logger.info(f"Audio placed in output queue: {len(audio_fp)} samples")
+
                     finally:
-                        # Clean up temporary file
-                        os.unlink(temp_mp3_path)
-                        
+                        os.unlink(temp_wav_path)
+
                 except Exception as e:
                     processing_errors.append(f"TTS synthesis error: {e}")
                     logger.error(f"Error in TTS synthesis: {e}")
