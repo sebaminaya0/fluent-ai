@@ -2,6 +2,7 @@ import os
 import queue
 import tempfile
 import threading
+import time
 import tkinter as tk
 import warnings
 from tkinter import messagebox, scrolledtext, ttk
@@ -74,6 +75,18 @@ class FluentAIGUI:
         # Cache for current models
         self.current_whisper_model = None
         self.current_translator = None
+
+        # Database logging. Resilient: if the logger is unavailable the GUI
+        # still runs, it just won't record sessions.
+        self.session_id = None
+        self.db_logger = None
+        try:
+            from fluentai.database_logger import db_logger, generate_session_id
+
+            self.db_logger = db_logger
+            self.session_id = generate_session_id()
+        except Exception as e:
+            print(f"DB logging unavailable: {e}")
 
         # Variable para selección de dirección de traducción
         self.translation_direction = tk.StringVar(value="es->en")
@@ -626,6 +639,7 @@ class FluentAIGUI:
 
             # Cambiar a indicador de procesamiento
             self.message_queue.put(("listening_indicator", "processing"))
+            process_start = time.time()
 
             # Obtener idiomas de la dirección seleccionada
             src_lang, tgt_lang = self.get_source_and_target_from_direction()
@@ -665,6 +679,13 @@ class FluentAIGUI:
 
                 if texto_traducido:
                     self.current_translation = texto_traducido
+                    self._log_complete_translation(
+                        texto_transcrito,
+                        texto_traducido,
+                        idioma_origen,
+                        idioma_destino,
+                        (time.time() - process_start) * 1000,
+                    )
                     self.message_queue.put(("translated_text", texto_traducido))
                     self.message_queue.put(
                         ("status", "✅ Traducción completada", "lightgreen")
@@ -687,6 +708,31 @@ class FluentAIGUI:
             self.is_recording = False
             self.message_queue.put(("reset_record_btn", True))
             self.message_queue.put(("listening_indicator", "idle"))
+
+    def _log_complete_translation(
+        self, original, translated, src_lang, tgt_lang, latency_ms
+    ):
+        """Record a completed GUI translation to the database (best-effort)."""
+        if not self.db_logger or not self.session_id:
+            return
+        try:
+            self.db_logger.log_complete_translation(
+                session_id=self.session_id,
+                input_language=src_lang,
+                output_language=tgt_lang,
+                input_channel="GUI microphone",
+                output_channel="GUI playback",
+                full_message_input=original,
+                full_message_translated=translated,
+                total_segments_audio=1,
+                total_segments_asr=1,
+                total_segments_output=1,
+                model_used="whisper-base",
+                total_latency_ms=latency_ms,
+                metadata={"interface": "gui"},
+            )
+        except Exception as e:
+            print(f"Failed to log translation to DB: {e}")
 
     def process_with_whisper(self, audio, src_lang):
         """Procesa el audio con Whisper con configuración mejorada"""
@@ -1562,6 +1608,12 @@ class FluentAIGUI:
 
         self.meeting_capture_thread.daemon = True
         self.meeting_asr_thread.daemon = True
+
+        # Propagate the session id so meeting-mode activity is logged too.
+        if self.session_id:
+            self.meeting_capture_thread.set_session_id(self.session_id)
+            self.meeting_asr_thread.set_session_id(self.session_id)
+            self.meeting_output_thread.set_session_id(self.session_id)
 
         self.meeting_capture_thread.start()
         self.meeting_asr_thread.start()

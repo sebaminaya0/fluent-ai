@@ -190,10 +190,10 @@ Both tables are auto-created on first connection. Use `view_database.py` for ins
 
 Key fields: `session_id`, `step_type`, `latency_ms`, `model_used`, `errors[]`, `metadata` (JSON).
 
-> **Note:** DB logging is currently wired into the `live_monitor.py --db` path
-> and the pipeline threads only. The flagship GUI (`gui_app.py`) does **not**
-> yet import `database_logger`, so GUI sessions are not logged. Wiring this into the
-> GUI is planned cleanup.
+> **Note:** DB logging is active in `gui_app.py` (each completed translation is
+> recorded via `log_complete_translation`, and Meeting Mode threads receive the
+> GUI's `session_id`), in `live_monitor.py --db`, and in the pipeline threads.
+> Logging is best-effort: if the logger can't initialize, the GUI still runs.
 
 ---
 
