@@ -19,8 +19,8 @@ This file provides guidance for AI assistants (Claude, Copilot, etc.) working on
 
 ```
 fluent-ai/
-├── gui_app.py                  # Main GUI entry point (Tkinter, ~1,340 lines)
-├── main_whisper.py             # CLI entry point — Whisper ASR (~851 lines)
+├── gui_app.py                  # Main GUI entry point (Tkinter, ~1,970 lines — God class, slated for decomposition)
+├── main_whisper.py             # CLI entry point — Whisper ASR (~940 lines)
 ├── main.py                     # CLI entry point — Google Speech Recognition
 ├── live_monitor_with_db.py     # Real-time monitor with DB logging
 ├── live_monitor.py             # Real-time monitor (no DB)
@@ -128,7 +128,14 @@ uv run pytest tests/ -v
 uv run pytest tests/test_benchmarks.py
 ```
 
-Tests use `pytest` and `pytest-asyncio`. All tests must pass before merging.
+Tests use `pytest` and `pytest-asyncio`. New code should pass before merging.
+
+> **Known-failing baseline (as of this writing):** the suite is not currently
+> green. `tests/test_silence_detection.py` (WebRTC VAD frame-size mismatch),
+> the mocked `tests/test_lazy_model_loader.py` cases (`Mock` no longer matches
+> the `model_loader` API), and `tests/test_benchmarks.py` (missing `psutil`
+> dependency) all fail. The non-mocked `tests/test_loader_metadata.py` passes.
+> Fixing the suite is tracked cleanup — don't assume a green baseline.
 
 ---
 
@@ -182,6 +189,11 @@ Two DuckDB tables:
 Both tables are auto-created on first connection. Use `view_database.py` for inspection.
 
 Key fields: `session_id`, `step_type`, `latency_ms`, `model_used`, `errors[]`, `metadata` (JSON).
+
+> **Note:** DB logging is currently wired into the CLI / `live_monitor_with_db.py`
+> path and the pipeline threads only. The flagship GUI (`gui_app.py`) does **not**
+> yet import `database_logger`, so GUI sessions are not logged. Wiring this into the
+> GUI is planned cleanup.
 
 ---
 
@@ -254,7 +266,10 @@ Language codes are configured in `conf/languages.yaml`.
 8. Run `tests/test_lazy_model_loader.py`
 9. Run `tests/test_benchmarks.py`
 
-All steps must pass for a PR to merge.
+These steps are the intended gate, but the CI is currently aspirational: the
+lint baseline was only recently greened, and several test files fail today (see
+the known-failing note under **Testing**). Treat green CI as a goal, not a
+guarantee, until the suite is repaired.
 
 ---
 
@@ -313,7 +328,7 @@ Results include ASR latency, translation latency, TTS latency, and end-to-end la
 
 | File | Why it matters |
 |---|---|
-| `gui_app.py` | Largest and most complex file (~1,340 lines); main user-facing code |
+| `gui_app.py` | Largest and most complex file (~1,970 lines); main user-facing code |
 | `fluentai/model_loader.py` | Central to performance; touch carefully (thread safety, caching) |
 | `fluentai/database_logger.py` | Only writer to DuckDB; schema is defined implicitly here |
 | `audio_capture_thread.py` | Audio quality begins here; VAD tuning impacts the entire pipeline |
