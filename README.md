@@ -105,14 +105,9 @@ Run the graphical user interface:
 uv run gui_app.py
 ```
 
-### 🆕 **Command-Line Versions**
+### 🆕 **Command-Line Version**
 
-**Standard Version** with Google Speech Recognition:
-```bash
-uv run main.py
-```
-
-**Whisper Version** with OpenAI Whisper:
+**Whisper CLI** with OpenAI Whisper:
 ```bash
 uv run main_whisper.py
 ```
@@ -236,7 +231,6 @@ chunk_size = 1024  # Optimal chunk size
 ```
 fluent-ai/
 ├── gui_app.py                    # Main GUI application with Tkinter (Recommended)
-├── main.py                       # Command-line version with Google Speech Recognition
 ├── main_whisper.py               # Command-line version with OpenAI Whisper
 ├── live_monitor_with_db.py       # Real-time translation monitor with database logging
 ├── init_database.py              # Database initialization and testing

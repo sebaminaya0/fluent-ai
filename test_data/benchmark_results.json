@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "timestamp": 1780674115.007679,
+    "system_info": {
+      "cpu_count": 12,
+      "memory_total": 25769803776,
+      "platform": "darwin",
+      "python_version": "3.13.5 (main, Jun 11 2025, 15:36:57) [Clang 17.0.0 (clang-1700.0.13.3)]"
+    }
+  },
+  "results": {
+    "startup_without_lazy_loading": {
+      "startup_time": 0.5151629447937012,
+      "memory_usage": -4.0,
+      "models_loaded": 5,
+      "loading_strategy": "eager"
+    },
+    "startup_with_lazy_loading": {
+      "startup_time": 0.00026488304138183594,
+      "memory_usage": -8.0,
+      "models_loaded": 0,
+      "loading_strategy": "lazy"
+    }
+  }
+}

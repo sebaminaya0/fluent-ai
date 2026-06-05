@@ -19,9 +19,8 @@ This file provides guidance for AI assistants (Claude, Copilot, etc.) working on
 
 ```
 fluent-ai/
-├── gui_app.py                  # Main GUI entry point (Tkinter, ~1,970 lines — God class, slated for decomposition)
-├── main_whisper.py             # CLI entry point — Whisper ASR (~940 lines)
-├── main.py                     # CLI entry point — Google Speech Recognition
+├── gui_app.py                  # Main GUI entry point (Tkinter, ~1,745 lines — God class, slated for decomposition)
+├── main_whisper.py             # CLI entry point — Whisper ASR (~780 lines)
 ├── live_monitor_with_db.py     # Real-time monitor with DB logging
 ├── live_monitor.py             # Real-time monitor (no DB)
 ├── audio_capture_thread.py     # Continuous mic capture + WebRTC VAD
@@ -80,9 +79,6 @@ uv run gui_app.py
 
 # CLI (Whisper backend)
 uv run main_whisper.py
-
-# CLI (Google Speech backend)
-uv run main.py
 
 # Real-time CLI translation
 python -m fluentai.cli.translate_rt --src es --dst en
