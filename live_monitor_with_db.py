@@ -272,7 +272,7 @@ class LiveMonitorWithDB:
 
                 time.sleep(0.1)
 
-            except:
+            except Exception:
                 break
 
     def log_complete_translation(self, input_text, translated_text):

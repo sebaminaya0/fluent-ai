@@ -26,8 +26,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module="librosa")
 recognizer = sr.Recognizer()
 
 # Suprimir warnings de Whisper
-import warnings
-
 warnings.filterwarnings("ignore", category=UserWarning, module="whisper")
 
 # Global variables to be initialized based on CLI args
@@ -261,7 +259,7 @@ def transcribe_long_audio(audio_file, model, chunk_length=30):
                     # Clean up chunk file
                     try:
                         os.unlink(chunk_filename)
-                    except:
+                    except Exception:
                         pass
 
         # Combine results
@@ -273,7 +271,7 @@ def transcribe_long_audio(audio_file, model, chunk_length=30):
         try:
             first_chunk_result = model.transcribe(audio_file, language=None)
             language = first_chunk_result["language"]
-        except:
+        except Exception:
             pass
 
         return {
@@ -302,8 +300,6 @@ def normalize_audio_rms(audio_data, target_rms=0.2):
         Normalized audio data as bytes
     """
     try:
-        import struct
-
         import numpy as np
 
         # Convert bytes to numpy array (assuming 16-bit PCM)
@@ -475,7 +471,7 @@ def grabar_y_reconocer_con_whisper(max_duration=60):
         # Limpiar el archivo temporal
         try:
             os.unlink(temp_filename)
-        except:
+        except Exception:
             pass
 
 
@@ -514,7 +510,7 @@ def grabar_y_reconocer_fallback(audio):
             else:
                 texto_final, idioma_final = texto_en, "en"
 
-        except:
+        except Exception:
             idioma_fallback = detectar_idioma(texto_es)
             if idioma_fallback is None:
                 print("Texto no reconocido como español o inglés.")

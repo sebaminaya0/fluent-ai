@@ -245,7 +245,7 @@ class LiveMonitor:
 
                 time.sleep(0.1)
 
-            except:
+            except Exception:
                 break
 
     def run(self):

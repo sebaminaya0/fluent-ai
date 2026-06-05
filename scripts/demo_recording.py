@@ -174,7 +174,7 @@ class DemoRecorder:
         ]
 
         print("\nAvailable language pairs:")
-        for i, (src, dst, desc) in enumerate(language_pairs, 1):
+        for i, (_src, _dst, desc) in enumerate(language_pairs, 1):
             print(f"{i}. {desc}")
 
         while True:

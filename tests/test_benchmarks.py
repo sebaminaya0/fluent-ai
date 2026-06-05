@@ -264,7 +264,7 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
 
             # Test sequential loading
             start_time = time.time()
-            for i, (src_lang, tgt_lang) in enumerate(
+            for _i, (src_lang, tgt_lang) in enumerate(
                 loader.get_supported_language_pairs()[:3]
             ):
                 loader.get_model(src_lang, tgt_lang)
@@ -403,7 +403,7 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
         results = self.benchmark_memory_footprint_multiple_language_pairs()
 
         print("Memory footprint scaling:")
-        for test_name, result in results.items():
+        for _test_name, result in results.items():
             print(
                 f"  {result['language_pairs']} pairs: {result['memory_usage_mb']:.1f}MB "
                 f"({result['memory_per_pair_mb']:.1f}MB/pair)"

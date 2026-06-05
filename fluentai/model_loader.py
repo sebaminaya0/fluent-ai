@@ -453,7 +453,7 @@ class LazyModelLoader:
         """Clear all cached models to free memory."""
         with self._loading_lock:
             # Clear translation models
-            for model_key, model in self._translation_models.items():
+            for model in self._translation_models.values():
                 if hasattr(model, "cleanup"):
                     model.cleanup()
             self._translation_models.clear()

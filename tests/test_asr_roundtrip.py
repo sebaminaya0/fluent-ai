@@ -33,7 +33,7 @@ except ImportError:
     SOUNDFILE_AVAILABLE = False
 
 try:
-    import whisper
+    import whisper  # noqa: F401  (availability probe)
 
     WHISPER_AVAILABLE = True
 except ImportError:

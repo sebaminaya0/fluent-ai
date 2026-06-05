@@ -536,7 +536,7 @@ class AudioCaptureThread:
                 blocksize=self.chunk_size,
                 dtype=np.float32,
                 callback=self._audio_callback,
-            ) as stream:
+            ):
                 logger.info("Audio stream started successfully")
 
                 # Keep thread alive until stop is requested

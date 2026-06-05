@@ -920,7 +920,6 @@ class FluentAIGUI:
         try:
             # Try to use librosa for chunked processing
             import librosa
-            import numpy as np
 
             # Load audio file
             audio, sr = librosa.load(audio_file, sr=16000)
@@ -998,7 +997,7 @@ class FluentAIGUI:
                         # Clean up chunk file
                         try:
                             os.unlink(chunk_filename)
-                        except:
+                        except Exception:
                             pass
 
             # Combine results
@@ -1015,7 +1014,7 @@ class FluentAIGUI:
                         audio_file, language=None
                     )
                     language = first_chunk_result["language"]
-            except:
+            except Exception:
                 pass
 
             return {
@@ -1099,11 +1098,11 @@ class FluentAIGUI:
         caracteres_no_latinos = caracteres_texto - caracteres_latinos
 
         print(f"Total de caracteres únicos en el texto: {len(caracteres_texto)}")
-        print(f"Caracteres únicos: {sorted(list(caracteres_texto))}")
+        print(f"Caracteres únicos: {sorted(caracteres_texto)}")
         print(f"Caracteres no latinos encontrados: {len(caracteres_no_latinos)}")
 
         if len(caracteres_no_latinos) > 0:
-            print(f"Caracteres no latinos: {sorted(list(caracteres_no_latinos))}")
+            print(f"Caracteres no latinos: {sorted(caracteres_no_latinos)}")
             porcentaje_no_latinos = len(caracteres_no_latinos) / len(caracteres_texto)
             print(f"Porcentaje de caracteres no latinos: {porcentaje_no_latinos:.2%}")
             print("Umbral máximo permitido: 20%")
@@ -1960,7 +1959,8 @@ class MeetingOverlay:
 
 def main():
     root = tk.Tk()
-    app = FluentAIGUI(root)
+    # Bound-method callbacks on the widgets keep this instance alive during mainloop.
+    FluentAIGUI(root)
     root.mainloop()
 
 

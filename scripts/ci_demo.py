@@ -26,7 +26,7 @@ def test_vad_import():
         import numpy as np
 
         dummy_audio = np.zeros(1024, dtype=np.int16).tobytes()
-        result = detector.process_audio_frame(dummy_audio)
+        detector.process_audio_frame(dummy_audio)
         print("✓ VAD processing successful")
 
         return True
@@ -50,7 +50,7 @@ def test_asr_import():
         q_in = queue.Queue()
         q_out = queue.Queue()
 
-        thread = ASRTranslationSynthesisThread(
+        ASRTranslationSynthesisThread(
             q_in, q_out, src_lang="es", dst_lang="en", whisper_model="base"
         )
         print("✓ ASR thread creation successful")

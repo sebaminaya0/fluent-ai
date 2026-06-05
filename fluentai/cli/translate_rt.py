@@ -337,9 +337,9 @@ class RealTimeTranslator:
     def _init_processing_thread(self):
         """Initialize the ASR + translation + synthesis thread."""
         try:
-            # Get language mappings from config
-            src_whisper_lang = self.language_config[self.src_lang]["whisper"]
-            dst_tts_lang = self.language_config[self.dst_lang]["tts"]
+            # Validate language mappings exist in config
+            _src_whisper_lang = self.language_config[self.src_lang]["whisper"]
+            _dst_tts_lang = self.language_config[self.dst_lang]["tts"]
 
             # Create processing thread
             processing_thread = ASRTranslationSynthesisThread(

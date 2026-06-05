@@ -124,14 +124,14 @@ class TestLazyModelLoaderMocking(unittest.TestCase):
         mock_pipeline.side_effect = mock_models
 
         # Load models up to cache limit
-        model1 = small_loader.get_model("es", "en")  # Should be cached
-        model2 = small_loader.get_model("en", "es")  # Should be cached
+        small_loader.get_model("es", "en")  # Should be cached
+        small_loader.get_model("en", "es")  # Should be cached
 
         # Check cache is at limit
         self.assertEqual(len(small_loader._translation_models), 2)
 
         # Load another model - should evict oldest
-        model3 = small_loader.get_model("es", "de")  # Should evict first model
+        small_loader.get_model("es", "de")  # Should evict first model
 
         # Check cache size is maintained
         self.assertEqual(len(small_loader._translation_models), 2)
@@ -142,7 +142,7 @@ class TestLazyModelLoaderMocking(unittest.TestCase):
         self.assertIn(("es", "de"), small_loader._translation_models)
 
         # Request first model again - should load again
-        model1_again = small_loader.get_model("es", "en")
+        small_loader.get_model("es", "en")
 
         # Should have been called 4 times total (3 + 1 reload)
         self.assertEqual(mock_pipeline.call_count, 4)
