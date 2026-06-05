@@ -113,6 +113,7 @@ class FluentAIGUI:
         self.meeting_speak_thread: MeetingSpeakThread | None = None
         self.meeting_asr_queue: queue.Queue | None = None
         self.meeting_speak_queue: queue.Queue | None = None
+        self._meeting_direction_label = ""
         self.meeting_output_device_var = tk.StringVar(value="")
         self.meeting_status_text = tk.StringVar(value="Stopped")
         self._meeting_device_list: list[dict] = []
@@ -1372,12 +1373,26 @@ class FluentAIGUI:
         self.meeting_speak_thread.start()
 
         self.meeting_mode_active = True
+        self._meeting_direction_label = f"{src_lang.upper()}→{dst_lang.upper()}"
+
+        # Warn about a feedback loop if output goes to a non-virtual device
+        # (physical speakers the mic can hear -> the translation gets recaptured
+        # and re-translated). BlackHole / virtual devices avoid this.
+        selected = next(
+            (d for d in self._meeting_device_list if d["name"] == device_name), None
+        )
+        is_virtual = bool(selected and selected["is_blackhole"])
 
         # Update UI
         self.meeting_toggle_btn.config(text="■ Stop Meeting Mode", bg="#e74c3c")
-        self.meeting_status_text.set(
-            f"LIVE | {src_lang.upper()} → {dst_lang.upper()} to {device_name}"
-        )
+        if is_virtual:
+            self.meeting_status_text.set(
+                f"LIVE | {self._meeting_direction_label} to {device_name}"
+            )
+        else:
+            self.meeting_status_text.set(
+                f"LIVE | {self._meeting_direction_label} | ⚠ use headphones (echo risk)"
+            )
         self.meeting_status_label.config(fg="#27ae60")
         self.record_btn.config(state=tk.DISABLED)
         self.direction_combo.config(state="disabled")
@@ -1413,10 +1428,21 @@ class FluentAIGUI:
         self.record_btn.config(state=tk.NORMAL)
         self.direction_combo.config(state="readonly")
 
-    def _on_meeting_translation_result(self, original: str, translated: str):
-        """Called from ASR thread after each translation. Posts to message_queue."""
+    def _on_meeting_translation_result(
+        self, original: str, translated: str, latency_ms: float | None = None
+    ):
+        """Called from the speak stage per translation. Posts to message_queue."""
         self.message_queue.put(("original_text", original))
         self.message_queue.put(("translated_text", translated))
+        # Show the last segment's end-to-end latency in the meeting status.
+        if latency_ms is not None and self.meeting_mode_active:
+            label = self._meeting_direction_label
+            self.root.after(
+                0,
+                lambda: self.meeting_status_text.set(
+                    f"LIVE | {label} | last {latency_ms / 1000:.1f}s"
+                ),
+            )
         # Also update overlay if visible
         if self._meeting_overlay:
             self.root.after(

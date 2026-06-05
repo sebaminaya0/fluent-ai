@@ -82,7 +82,14 @@ class MeetingASRThread(threading.Thread):
                         or original
                     )
 
-                self.speak_queue.put({"original": original, "translated": translated})
+                latency_ms = (time.time() - start) * 1000
+                self.speak_queue.put(
+                    {
+                        "original": original,
+                        "translated": translated,
+                        "latency_ms": latency_ms,
+                    }
+                )
 
                 if self.session_id:
                     db_logger.log_asr_translation(
@@ -92,7 +99,7 @@ class MeetingASRThread(threading.Thread):
                         original_text=original,
                         translated_text=translated,
                         model_used=self.whisper_model_name,
-                        latency_ms=(time.time() - start) * 1000,
+                        latency_ms=latency_ms,
                         errors=[],
                     )
             except Exception as e:
@@ -136,7 +143,11 @@ class MeetingSpeakThread(threading.Thread):
             try:
                 # Update the UI first so text appears as playback starts.
                 if self.callback:
-                    self.callback(item["original"], item["translated"])
+                    self.callback(
+                        item["original"],
+                        item["translated"],
+                        item.get("latency_ms"),
+                    )
 
                 # Blocking so utterances don't overlap; the ASR stage keeps
                 # working on the next segment in parallel meanwhile.

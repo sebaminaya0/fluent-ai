@@ -46,7 +46,7 @@ def test_speak_thread_streams_translated_text(monkeypatch):
         speak_q,
         device_name="BlackHole 2ch",
         dst_lang="es",
-        callback=lambda o, t: seen.append((o, t)),
+        callback=lambda o, t, lat: seen.append((o, t, lat)),
     )
     thread.start()
     speak_q.put({"original": "hello", "translated": "hola"})
@@ -59,7 +59,7 @@ def test_speak_thread_streams_translated_text(monkeypatch):
     thread.join(timeout=2)
 
     assert calls == [("hola", "es", "BlackHole 2ch")]
-    assert seen == [("hello", "hola")]
+    assert seen == [("hello", "hola", None)]
 
 
 @pytest.mark.integration
