@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Databases and model caches (runtime artifacts, never commit)
+*.duckdb
+*.db
+model_cache/
