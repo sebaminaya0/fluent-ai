@@ -199,92 +199,7 @@ class FluentAIGUI:
         # Vincular evento para cargar modelo necesario
         self.direction_combo.bind("<<ComboboxSelected>>", self.on_direction_change)
 
-        # Frame para configuración de detección de silencio
-        silence_frame = tk.Frame(self.root, bg="#f0f0f0")
-        silence_frame.pack(pady=10)
-
-        # Checkbox para habilitar detección de silencio
-        self.silence_checkbox = tk.Checkbutton(
-            silence_frame,
-            text="🔇 Detección de silencio automática",
-            variable=self.silence_detection_enabled,
-            command=self.toggle_silence_detection,
-            font=("Arial", 11, "bold"),
-            bg="#f0f0f0",
-            fg="#2c3e50",
-        )
-        self.silence_checkbox.pack()
-
-        # Frame para controles de silencio (inicialmente oculto)
-        self.silence_controls_frame = tk.Frame(silence_frame, bg="#f0f0f0")
-
-        # Preset selector
-        preset_frame = tk.Frame(self.silence_controls_frame, bg="#f0f0f0")
-        preset_frame.pack(side=tk.LEFT, padx=10)
-
-        tk.Label(
-            preset_frame, text="Preset:", font=("Arial", 10), bg="#f0f0f0", fg="#2c3e50"
-        ).pack()
-
-        self.preset_combo = ttk.Combobox(
-            preset_frame,
-            textvariable=self.silence_preset,
-            values=["sensitive", "balanced", "aggressive", "very_aggressive"],
-            state="readonly",
-            width=12,
-        )
-        self.preset_combo.pack(pady=2)
-        self.preset_combo.bind("<<ComboboxSelected>>", self.on_silence_preset_change)
-
-        # Silence length slider
-        length_frame = tk.Frame(self.silence_controls_frame, bg="#f0f0f0")
-        length_frame.pack(side=tk.LEFT, padx=10)
-
-        tk.Label(
-            length_frame,
-            text="Duración silencio (ms):",
-            font=("Arial", 10),
-            bg="#f0f0f0",
-            fg="#2c3e50",
-        ).pack()
-
-        self.silence_length_scale = tk.Scale(
-            length_frame,
-            from_=200,
-            to=2000,
-            orient=tk.HORIZONTAL,
-            variable=self.min_silence_len,
-            command=self.on_silence_param_change,
-            bg="#f0f0f0",
-            fg="#2c3e50",
-            length=100,
-        )
-        self.silence_length_scale.pack(pady=2)
-
-        # Silence threshold slider
-        thresh_frame = tk.Frame(self.silence_controls_frame, bg="#f0f0f0")
-        thresh_frame.pack(side=tk.LEFT, padx=10)
-
-        tk.Label(
-            thresh_frame,
-            text="Umbral silencio (dBFS):",
-            font=("Arial", 10),
-            bg="#f0f0f0",
-            fg="#2c3e50",
-        ).pack()
-
-        self.silence_thresh_scale = tk.Scale(
-            thresh_frame,
-            from_=-60,
-            to=-20,
-            orient=tk.HORIZONTAL,
-            variable=self.silence_thresh,
-            command=self.on_silence_param_change,
-            bg="#f0f0f0",
-            fg="#2c3e50",
-            length=100,
-        )
-        self.silence_thresh_scale.pack(pady=2)
+        self._build_silence_controls()
 
         # Frame para los botones de control
         control_frame = tk.Frame(self.root, bg="#f0f0f0")
@@ -379,6 +294,101 @@ class FluentAIGUI:
         )
         self.translated_text.pack(fill=tk.BOTH, expand=True, pady=(5, 10))
 
+        self._build_meeting_panel()
+        self._build_status_bar()
+
+        # Inicializar la actualización del medidor de micrófono
+        self.update_mic_level_display()
+
+    def _build_silence_controls(self):
+        # Frame para configuración de detección de silencio
+        silence_frame = tk.Frame(self.root, bg="#f0f0f0")
+        silence_frame.pack(pady=10)
+
+        # Checkbox para habilitar detección de silencio
+        self.silence_checkbox = tk.Checkbutton(
+            silence_frame,
+            text="🔇 Detección de silencio automática",
+            variable=self.silence_detection_enabled,
+            command=self.toggle_silence_detection,
+            font=("Arial", 11, "bold"),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+        )
+        self.silence_checkbox.pack()
+
+        # Frame para controles de silencio (inicialmente oculto)
+        self.silence_controls_frame = tk.Frame(silence_frame, bg="#f0f0f0")
+
+        # Preset selector
+        preset_frame = tk.Frame(self.silence_controls_frame, bg="#f0f0f0")
+        preset_frame.pack(side=tk.LEFT, padx=10)
+
+        tk.Label(
+            preset_frame, text="Preset:", font=("Arial", 10), bg="#f0f0f0", fg="#2c3e50"
+        ).pack()
+
+        self.preset_combo = ttk.Combobox(
+            preset_frame,
+            textvariable=self.silence_preset,
+            values=["sensitive", "balanced", "aggressive", "very_aggressive"],
+            state="readonly",
+            width=12,
+        )
+        self.preset_combo.pack(pady=2)
+        self.preset_combo.bind("<<ComboboxSelected>>", self.on_silence_preset_change)
+
+        # Silence length slider
+        length_frame = tk.Frame(self.silence_controls_frame, bg="#f0f0f0")
+        length_frame.pack(side=tk.LEFT, padx=10)
+
+        tk.Label(
+            length_frame,
+            text="Duración silencio (ms):",
+            font=("Arial", 10),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+        ).pack()
+
+        self.silence_length_scale = tk.Scale(
+            length_frame,
+            from_=200,
+            to=2000,
+            orient=tk.HORIZONTAL,
+            variable=self.min_silence_len,
+            command=self.on_silence_param_change,
+            bg="#f0f0f0",
+            fg="#2c3e50",
+            length=100,
+        )
+        self.silence_length_scale.pack(pady=2)
+
+        # Silence threshold slider
+        thresh_frame = tk.Frame(self.silence_controls_frame, bg="#f0f0f0")
+        thresh_frame.pack(side=tk.LEFT, padx=10)
+
+        tk.Label(
+            thresh_frame,
+            text="Umbral silencio (dBFS):",
+            font=("Arial", 10),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+        ).pack()
+
+        self.silence_thresh_scale = tk.Scale(
+            thresh_frame,
+            from_=-60,
+            to=-20,
+            orient=tk.HORIZONTAL,
+            variable=self.silence_thresh,
+            command=self.on_silence_param_change,
+            bg="#f0f0f0",
+            fg="#2c3e50",
+            length=100,
+        )
+        self.silence_thresh_scale.pack(pady=2)
+
+    def _build_meeting_panel(self):
         # ── Meeting Mode Panel ───────────────────────────────────────────────
         meeting_frame = tk.LabelFrame(
             self.root,
@@ -465,6 +475,7 @@ class FluentAIGUI:
         # Populate device list now
         self._refresh_output_devices()
 
+    def _build_status_bar(self):
         # ── Status bar ───────────────────────────────────────────────────────
         # Barra de estado con múltiples componentes
         self.status_frame = tk.Frame(self.root, bg="#34495e")
@@ -543,9 +554,6 @@ class FluentAIGUI:
         self.spinner_active = False
         self.spinner_chars = ["◐", "◓", "◑", "◒"]
         self.spinner_index = 0
-
-        # Inicializar la actualización del medidor de micrófono
-        self.update_mic_level_display()
 
     def get_direction_from_display(self, display_text):
         """Convierte el texto de display a la clave de dirección"""
