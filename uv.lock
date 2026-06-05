@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.13"
 
 [[package]]
@@ -199,6 +199,7 @@ dependencies = [
     { name = "openai-whisper" },
     { name = "pyaudio" },
     { name = "pydub" },
+    { name = "pygame" },
     { name = "pyttsx3" },
     { name = "sentencepiece" },
     { name = "sounddevice" },
@@ -238,6 +239,7 @@ requires-dist = [
     { name = "pyaudio" },
     { name = "pydub", specifier = ">=0.25.1" },
     { name = "pydub", marker = "extra == 'rt'" },
+    { name = "pygame", specifier = ">=2.6.1" },
     { name = "pygame", marker = "extra == 'rt'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },

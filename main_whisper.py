@@ -8,11 +8,11 @@ import time
 # Suppress specific warnings
 import warnings
 
-import pygame
 import speech_recognition as sr
-from gtts import gTTS
 
 from fluentai import LazyModelLoader
+from fluentai.tts_engine import synthesize_to_numpy
+import sounddevice as sd
 from silence_detector import (
     SilenceDetectorIntegration,
     create_silence_detector,
@@ -21,10 +21,6 @@ from silence_detector import (
 warnings.filterwarnings("ignore", category=UserWarning, module="librosa")
 
 # --- 1. CONFIGURACIÓN INICIAL ---
-
-# Inicializar Pygame para el audio
-pygame.init()
-pygame.mixer.init()
 
 # Inicializar el reconocedor de voz (como fallback)
 recognizer = sr.Recognizer()
@@ -493,32 +489,21 @@ def traducir_texto(texto_a_traducir, idioma_origen):
 
 def hablar_texto(texto_a_hablar, idioma='en'):
     """
-    Convierte el texto proporcionado a un archivo de audio y lo reproduce usando Pygame.
+    Sintetiza y reproduce texto con la TTS unificada.
     """
     if not texto_a_hablar:
         return
 
     print("Generando audio...")
     try:
-        tts = gTTS(text=texto_a_hablar, lang=idioma, slow=False)
-        nombre_archivo = "traduccion.mp3"
-        tts.save(nombre_archivo)
-
-        print("Reproduciendo traducción...")
-        pygame.mixer.music.load(nombre_archivo)
-        pygame.mixer.music.play()
-
-        # Esperar a que la música termine de reproducirse
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
-
-        # Pygame puede bloquear el archivo, así que lo descargamos y esperamos un poco
-        pygame.mixer.music.unload()
-        time.sleep(0.5)
-
-        os.remove(nombre_archivo) # Limpiar el archivo de audio después de reproducirlo
+        samples = synthesize_to_numpy(texto_a_hablar, idioma, sample_rate=44100)
+        if samples.size == 0:
+            print("TTS no generó muestras.")
+            return
+        sd.play(samples, samplerate=44100)
+        sd.wait()
     except Exception as e:
-        print(f"Ocurrió un error al generar o reproducir el audio: {e}")
+        print(f"Ocurrió un error al reproducir el audio: {e}")
 
 def parse_cli_args():
     """
@@ -845,7 +830,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n¡Adiós! Saliendo del programa.")
     finally:
-        # Cleanup
         if model_loader:
             model_loader.shutdown()
-        pygame.quit()

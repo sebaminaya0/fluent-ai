@@ -12,20 +12,29 @@ import logging
 import queue
 import threading
 import time
+from collections.abc import Callable
 
-import numpy as np
-import pyttsx3
 import whisper
 from transformers import pipeline
 
 from fluentai.database_logger import db_logger
+from fluentai.tts_engine import synthesize_to_numpy
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class ASRTranslationSynthesisThread(threading.Thread):
-    def __init__(self, queue_in, queue_out, src_lang='en', dst_lang='en', whisper_model='base'):
+    def __init__(
+        self,
+        queue_in,
+        queue_out,
+        src_lang="en",
+        dst_lang="en",
+        whisper_model="base",
+        callback: Callable[[str, str], None] | None = None,
+    ):
         super().__init__()
         self.queue_in = queue_in
         self.queue_out = queue_out
@@ -33,15 +42,15 @@ class ASRTranslationSynthesisThread(threading.Thread):
         self.dst_lang = dst_lang
         self.whisper_model_name = whisper_model
         self.stop_event = threading.Event()
-        
+        self.callback = callback
+
         # Database logging
         self.session_id = None
 
         # Models will be loaded in the run method
         self.whisper_model = None
         self.translation_pipeline = None
-        self.tts_engine = None
-        
+
     def set_session_id(self, session_id: str):
         """Set the session ID for database logging."""
         self.session_id = session_id
@@ -51,24 +60,24 @@ class ASRTranslationSynthesisThread(threading.Thread):
         """Load models in the thread context to avoid initialization issues."""
         try:
             logger.info(f"Loading Whisper model: {self.whisper_model_name}")
-            self.whisper_model = whisper.load_model(self.whisper_model_name, device="cpu")
+            self.whisper_model = whisper.load_model(
+                self.whisper_model_name, device="cpu"
+            )
             logger.info("Whisper model loaded successfully")
 
             # Load translation pipeline if needed (if source and destination are different)
             if self.src_lang != self.dst_lang:
-                logger.info(f"Loading translation pipeline: {self.src_lang} -> {self.dst_lang}")
+                logger.info(
+                    f"Loading translation pipeline: {self.src_lang} -> {self.dst_lang}"
+                )
                 self.translation_pipeline = pipeline(
                     "translation",
                     model=f"Helsinki-NLP/opus-mt-{self.src_lang}-{self.dst_lang}",
-                    device="cpu"
+                    device="cpu",
                 )
                 logger.info("Translation pipeline loaded successfully")
 
-            # Initialize offline TTS engine (pyttsx3 uses espeak on Linux, nsss on macOS)
-            logger.info("Initializing offline TTS engine...")
-            self.tts_engine = pyttsx3.init()
-            self.tts_engine.setProperty('rate', 150)  # words per minute
-            logger.info("TTS engine initialized")
+            logger.info("TTS engine ready (synthesize_to_numpy)")
         except Exception as e:
             logger.error(f"Error loading models: {e}")
             raise
@@ -82,7 +91,7 @@ class ASRTranslationSynthesisThread(threading.Thread):
                 # Get WAV data from input queue
                 audio_segment = self.queue_in.get(timeout=1)
                 logger.info("Processing audio segment...")
-                
+
                 # Track processing time
                 start_time = time.time()
                 original_text = ""
@@ -95,16 +104,22 @@ class ASRTranslationSynthesisThread(threading.Thread):
                 import tempfile
 
                 # Write WAV bytes to temporary file
-                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-                    temp_file.write(audio_segment['wav_data'])
+                with tempfile.NamedTemporaryFile(
+                    suffix=".wav", delete=False
+                ) as temp_file:
+                    temp_file.write(audio_segment["wav_data"])
                     temp_file_path = temp_file.name
 
                 try:
                     # Use the temporary file path with Whisper
                     # Specify source language to avoid detection issues
-                    result = self.whisper_model.transcribe(temp_file_path, language=self.src_lang)
-                    original_text = result['text'].strip()
-                    logger.info(f"Whisper transcribed: '{original_text}' (language: {result.get('language', 'unknown')})")
+                    result = self.whisper_model.transcribe(
+                        temp_file_path, language=self.src_lang
+                    )
+                    original_text = result["text"].strip()
+                    logger.info(
+                        f"Whisper transcribed: '{original_text}' (language: {result.get('language', 'unknown')})"
+                    )
                 except Exception as e:
                     processing_errors.append(f"Whisper transcription error: {e}")
                     logger.error(f"Error in transcription: {e}")
@@ -123,18 +138,20 @@ class ASRTranslationSynthesisThread(threading.Thread):
                             translated_text="",
                             model_used=self.whisper_model_name,
                             latency_ms=(time.time() - start_time) * 1000,
-                            errors=processing_errors + ["Empty transcription"]
+                            errors=processing_errors + ["Empty transcription"],
                         )
                     logger.warning("Empty transcription, skipping synthesis")
                     continue
-                    
+
                 # Translate text if necessary (if source and destination are different)
                 translated_text = original_text  # Default to original text
                 if self.src_lang != self.dst_lang:
                     try:
-                        logger.info(f"Translating from {self.src_lang} to {self.dst_lang}...")
+                        logger.info(
+                            f"Translating from {self.src_lang} to {self.dst_lang}..."
+                        )
                         translation = self.translation_pipeline(original_text)
-                        translated_text = translation[0]['translation_text']
+                        translated_text = translation[0]["translation_text"]
                         logger.info(f"Translated text: '{translated_text}'")
                     except Exception as e:
                         processing_errors.append(f"Translation error: {e}")
@@ -152,46 +169,35 @@ class ASRTranslationSynthesisThread(threading.Thread):
                             translated_text="",
                             model_used=self.whisper_model_name,
                             latency_ms=(time.time() - start_time) * 1000,
-                            errors=processing_errors + ["Empty translation"]
+                            errors=processing_errors + ["Empty translation"],
                         )
                     logger.warning("Empty translation, skipping synthesis")
                     continue
 
-                # Synthesize translated text to speech (offline, via pyttsx3)
+                # Synthesize translated text to speech
                 try:
-                    import os
-                    import tempfile
-
-                    from pydub import AudioSegment as PydubSegment
-
-                    logger.info(f"Synthesizing speech (offline) in {self.dst_lang}: '{translated_text}'")
-
-                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-                        temp_wav_path = tmp.name
-
-                    try:
-                        self.tts_engine.save_to_file(translated_text, temp_wav_path)
-                        self.tts_engine.runAndWait()
-
-                        # Load WAV and convert to numpy array at 44100 Hz mono
-                        tts_audio = PydubSegment.from_wav(temp_wav_path)
-                        tts_audio = tts_audio.set_frame_rate(44100).set_channels(1)
-
-                        audio_fp = np.array(tts_audio.get_array_of_samples(), dtype=np.float32)
-
-                        if len(audio_fp) > 0:
-                            audio_fp = audio_fp / np.max(np.abs(audio_fp))
-
+                    logger.info(
+                        f"Synthesizing speech in {self.dst_lang}: '{translated_text}'"
+                    )
+                    audio_fp = synthesize_to_numpy(
+                        translated_text, self.dst_lang, sample_rate=44100
+                    )
+                    if len(audio_fp) > 0:
                         self.queue_out.put(audio_fp)
-                        logger.info(f"Audio placed in output queue: {len(audio_fp)} samples")
-
-                    finally:
-                        os.unlink(temp_wav_path)
-
+                        logger.info(
+                            f"Audio placed in output queue: {len(audio_fp)} samples"
+                        )
                 except Exception as e:
                     processing_errors.append(f"TTS synthesis error: {e}")
                     logger.error(f"Error in TTS synthesis: {e}")
-                
+
+                # Fire translation callback for GUI updates
+                if self.callback is not None:
+                    try:
+                        self.callback(original_text, translated_text)
+                    except Exception as e:
+                        logger.warning(f"Translation callback error: {e}")
+
                 # Log processing to database
                 if self.session_id:
                     processing_time = (time.time() - start_time) * 1000
@@ -205,10 +211,12 @@ class ASRTranslationSynthesisThread(threading.Thread):
                         latency_ms=processing_time,
                         errors=processing_errors,
                         metadata={
-                            "audio_duration": audio_segment.get('duration', 0),
-                            "audio_samples": audio_segment.get('samples', 0),
-                            "output_samples": len(audio_fp) if 'audio_fp' in locals() else 0
-                        }
+                            "audio_duration": audio_segment.get("duration", 0),
+                            "audio_samples": audio_segment.get("samples", 0),
+                            "output_samples": len(audio_fp)
+                            if "audio_fp" in locals()
+                            else 0,
+                        },
                     )
 
             except queue.Empty:
@@ -219,5 +227,3 @@ class ASRTranslationSynthesisThread(threading.Thread):
 
     def stop(self):
         self.stop_event.set()
-
-

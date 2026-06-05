@@ -8,11 +8,14 @@ import warnings
 from tkinter import messagebox, scrolledtext, ttk
 
 import numpy as np
-import pygame
-import pyttsx3
+import sounddevice as sd
 import speech_recognition as sr
 
+from audio_capture_thread import AudioCaptureThread
+from fluentai.asr_translation_synthesis_thread import ASRTranslationSynthesisThread
+from fluentai.blackhole_reproduction_thread import BlackHoleReproductionThread
 from fluentai.model_loader import LazyModelLoader
+from fluentai.tts_engine import synthesize_to_numpy
 from silence_detector import (
     SilenceDetectorIntegration,
     create_silence_detector,
@@ -21,12 +24,13 @@ from silence_detector import (
 # Suppress specific warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="librosa")
 
+
 class FluentAIGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("🌍 Fluent AI - Bidirectional Translator")
-        self.root.geometry("800x600")
-        self.root.configure(bg='#f0f0f0')
+        self.root.geometry("800x750")
+        self.root.configure(bg="#f0f0f0")
 
         # Variables de estado
         self.is_recording = False
@@ -42,10 +46,6 @@ class FluentAIGUI:
         # Cola para comunicación entre hilos
         self.message_queue = queue.Queue()
 
-        # Inicializar componentes de audio
-        pygame.init()
-        pygame.mixer.init()
-
         # Configurar reconocedor de voz para capturar frases más largas
         self.recognizer = sr.Recognizer()
         # Reducir el umbral de energía para ser más sensible a voz baja
@@ -53,15 +53,21 @@ class FluentAIGUI:
         # Desactivar el ajuste dinámico de energía para evitar cortes prematuros
         self.recognizer.dynamic_energy_threshold = False
         # Configurar para ser más tolerante con pausas y silencios
-        self.recognizer.pause_threshold = 2.0  # Esperar 2 segundos de silencio antes de considerar fin
+        self.recognizer.pause_threshold = (
+            2.0  # Esperar 2 segundos de silencio antes de considerar fin
+        )
         self.recognizer.operation_timeout = None  # Sin timeout de operación
-        self.recognizer.non_speaking_duration = 2.0  # Duración de no-habla antes de parar
+        self.recognizer.non_speaking_duration = (
+            2.0  # Duración de no-habla antes de parar
+        )
 
         # Suprimir warnings
         warnings.filterwarnings("ignore", category=UserWarning, module="whisper")
 
         # Initialize LazyModelLoader
-        self.model_loader = LazyModelLoader(cache_dir="./model_cache", max_cache_size=10)
+        self.model_loader = LazyModelLoader(
+            cache_dir="./model_cache", max_cache_size=10
+        )
         self.model_loader.set_progress_callback(self._on_model_progress)
 
         # Cache for current models
@@ -69,11 +75,11 @@ class FluentAIGUI:
         self.current_translator = None
 
         # Variable para selección de dirección de traducción
-        self.translation_direction = tk.StringVar(value='es->en')
+        self.translation_direction = tk.StringVar(value="es->en")
 
         # Variables para detección de silencio
         self.silence_detection_enabled = tk.BooleanVar(value=False)
-        self.silence_preset = tk.StringVar(value='balanced')
+        self.silence_preset = tk.StringVar(value="balanced")
         self.min_silence_len = tk.IntVar(value=800)
         self.silence_thresh = tk.IntVar(value=-40)
 
@@ -81,8 +87,23 @@ class FluentAIGUI:
         self.silence_detector = None
         self.silence_integration = None
 
+        # Meeting Mode state
+        self.meeting_mode_active = False
+        self.meeting_capture_thread: AudioCaptureThread | None = None
+        self.meeting_asr_thread: ASRTranslationSynthesisThread | None = None
+        self.meeting_output_thread: BlackHoleReproductionThread | None = None
+        self.meeting_asr_queue: queue.Queue | None = None
+        self.meeting_synthesis_queue: queue.Queue | None = None
+        self.meeting_output_device_var = tk.StringVar(value="")
+        self.meeting_status_text = tk.StringVar(value="Stopped")
+        self._meeting_device_list: list[dict] = []
+        self._meeting_overlay: MeetingOverlay | None = None
+
         # Crear la interfaz
         self.create_ui()
+
+        # Window close handler
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Iniciar el monitoreo de la cola de mensajes
         self.check_message_queue()
@@ -97,230 +118,411 @@ class FluentAIGUI:
 
     def create_ui(self):
         # Título principal
-        title_frame = tk.Frame(self.root, bg='#f0f0f0')
+        title_frame = tk.Frame(self.root, bg="#f0f0f0")
         title_frame.pack(pady=20)
 
-        title_label = tk.Label(title_frame, text="🌍 Fluent AI Translator",
-                              font=('Arial', 24, 'bold'), bg='#f0f0f0', fg='#2c3e50')
+        title_label = tk.Label(
+            title_frame,
+            text="🌍 Fluent AI Translator",
+            font=("Arial", 24, "bold"),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+        )
         title_label.pack()
 
-        subtitle_label = tk.Label(title_frame, text="Español • English • Deutsch • Français",
-                                 font=('Arial', 14), bg='#f0f0f0', fg='#7f8c8d')
+        subtitle_label = tk.Label(
+            title_frame,
+            text="Español • English • Deutsch • Français",
+            font=("Arial", 14),
+            bg="#f0f0f0",
+            fg="#7f8c8d",
+        )
         subtitle_label.pack()
 
         # Frame para selección de dirección de traducción
-        direction_frame = tk.Frame(self.root, bg='#f0f0f0')
+        direction_frame = tk.Frame(self.root, bg="#f0f0f0")
         direction_frame.pack(pady=10)
 
-        tk.Label(direction_frame, text="Dirección de traducción:",
-                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#2c3e50').pack()
+        tk.Label(
+            direction_frame,
+            text="Dirección de traducción:",
+            font=("Arial", 14, "bold"),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+        ).pack()
 
         # Mapeo de direcciones de traducción
         self.translation_directions = {
-            'es->en': '🇪🇸 Español → 🇺🇸 English',
-            'en->es': '🇺🇸 English → 🇪🇸 Español',
-            'es->de': '🇪🇸 Español → 🇩🇪 Deutsch',
-            'de->es': '🇩🇪 Deutsch → 🇪🇸 Español',
-            'es->fr': '🇪🇸 Español → 🇫🇷 Français',
-            'fr->es': '🇫🇷 Français → 🇪🇸 Español',
-            'en->de': '🇺🇸 English → 🇩🇪 Deutsch',
-            'de->en': '🇩🇪 Deutsch → 🇺🇸 English',
-            'en->fr': '🇺🇸 English → 🇫🇷 Français',
-            'fr->en': '🇫🇷 Français → 🇺🇸 English'
+            "es->en": "🇪🇸 Español → 🇺🇸 English",
+            "en->es": "🇺🇸 English → 🇪🇸 Español",
+            "es->de": "🇪🇸 Español → 🇩🇪 Deutsch",
+            "de->es": "🇩🇪 Deutsch → 🇪🇸 Español",
+            "es->fr": "🇪🇸 Español → 🇫🇷 Français",
+            "fr->es": "🇫🇷 Français → 🇪🇸 Español",
+            "en->de": "🇺🇸 English → 🇩🇪 Deutsch",
+            "de->en": "🇩🇪 Deutsch → 🇺🇸 English",
+            "en->fr": "🇺🇸 English → 🇫🇷 Français",
+            "fr->en": "🇫🇷 Français → 🇺🇸 English",
         }
 
         # Selector de dirección de traducción
-        self.direction_combo = ttk.Combobox(direction_frame,
-                                          textvariable=self.translation_direction,
-                                          values=list(self.translation_directions.values()),
-                                          state='readonly', width=35, font=('Arial', 12))
+        self.direction_combo = ttk.Combobox(
+            direction_frame,
+            textvariable=self.translation_direction,
+            values=list(self.translation_directions.values()),
+            state="readonly",
+            width=35,
+            font=("Arial", 12),
+        )
         self.direction_combo.pack(pady=10)
-        self.direction_combo.set(self.translation_directions['es->en'])
+        self.direction_combo.set(self.translation_directions["es->en"])
 
         # Vincular evento para cargar modelo necesario
-        self.direction_combo.bind('<<ComboboxSelected>>', self.on_direction_change)
+        self.direction_combo.bind("<<ComboboxSelected>>", self.on_direction_change)
 
         # Frame para configuración de detección de silencio
-        silence_frame = tk.Frame(self.root, bg='#f0f0f0')
+        silence_frame = tk.Frame(self.root, bg="#f0f0f0")
         silence_frame.pack(pady=10)
 
         # Checkbox para habilitar detección de silencio
-        self.silence_checkbox = tk.Checkbutton(silence_frame,
-                                              text="🔇 Detección de silencio automática",
-                                              variable=self.silence_detection_enabled,
-                                              command=self.toggle_silence_detection,
-                                              font=('Arial', 11, 'bold'),
-                                              bg='#f0f0f0', fg='#2c3e50')
+        self.silence_checkbox = tk.Checkbutton(
+            silence_frame,
+            text="🔇 Detección de silencio automática",
+            variable=self.silence_detection_enabled,
+            command=self.toggle_silence_detection,
+            font=("Arial", 11, "bold"),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+        )
         self.silence_checkbox.pack()
 
         # Frame para controles de silencio (inicialmente oculto)
-        self.silence_controls_frame = tk.Frame(silence_frame, bg='#f0f0f0')
+        self.silence_controls_frame = tk.Frame(silence_frame, bg="#f0f0f0")
 
         # Preset selector
-        preset_frame = tk.Frame(self.silence_controls_frame, bg='#f0f0f0')
+        preset_frame = tk.Frame(self.silence_controls_frame, bg="#f0f0f0")
         preset_frame.pack(side=tk.LEFT, padx=10)
 
-        tk.Label(preset_frame, text="Preset:",
-                font=('Arial', 10), bg='#f0f0f0', fg='#2c3e50').pack()
+        tk.Label(
+            preset_frame, text="Preset:", font=("Arial", 10), bg="#f0f0f0", fg="#2c3e50"
+        ).pack()
 
-        self.preset_combo = ttk.Combobox(preset_frame,
-                                        textvariable=self.silence_preset,
-                                        values=['sensitive', 'balanced', 'aggressive', 'very_aggressive'],
-                                        state='readonly', width=12)
+        self.preset_combo = ttk.Combobox(
+            preset_frame,
+            textvariable=self.silence_preset,
+            values=["sensitive", "balanced", "aggressive", "very_aggressive"],
+            state="readonly",
+            width=12,
+        )
         self.preset_combo.pack(pady=2)
-        self.preset_combo.bind('<<ComboboxSelected>>', self.on_silence_preset_change)
+        self.preset_combo.bind("<<ComboboxSelected>>", self.on_silence_preset_change)
 
         # Silence length slider
-        length_frame = tk.Frame(self.silence_controls_frame, bg='#f0f0f0')
+        length_frame = tk.Frame(self.silence_controls_frame, bg="#f0f0f0")
         length_frame.pack(side=tk.LEFT, padx=10)
 
-        tk.Label(length_frame, text="Duración silencio (ms):",
-                font=('Arial', 10), bg='#f0f0f0', fg='#2c3e50').pack()
+        tk.Label(
+            length_frame,
+            text="Duración silencio (ms):",
+            font=("Arial", 10),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+        ).pack()
 
-        self.silence_length_scale = tk.Scale(length_frame,
-                                           from_=200, to=2000,
-                                           orient=tk.HORIZONTAL,
-                                           variable=self.min_silence_len,
-                                           command=self.on_silence_param_change,
-                                           bg='#f0f0f0', fg='#2c3e50',
-                                           length=100)
+        self.silence_length_scale = tk.Scale(
+            length_frame,
+            from_=200,
+            to=2000,
+            orient=tk.HORIZONTAL,
+            variable=self.min_silence_len,
+            command=self.on_silence_param_change,
+            bg="#f0f0f0",
+            fg="#2c3e50",
+            length=100,
+        )
         self.silence_length_scale.pack(pady=2)
 
         # Silence threshold slider
-        thresh_frame = tk.Frame(self.silence_controls_frame, bg='#f0f0f0')
+        thresh_frame = tk.Frame(self.silence_controls_frame, bg="#f0f0f0")
         thresh_frame.pack(side=tk.LEFT, padx=10)
 
-        tk.Label(thresh_frame, text="Umbral silencio (dBFS):",
-                font=('Arial', 10), bg='#f0f0f0', fg='#2c3e50').pack()
+        tk.Label(
+            thresh_frame,
+            text="Umbral silencio (dBFS):",
+            font=("Arial", 10),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+        ).pack()
 
-        self.silence_thresh_scale = tk.Scale(thresh_frame,
-                                           from_=-60, to=-20,
-                                           orient=tk.HORIZONTAL,
-                                           variable=self.silence_thresh,
-                                           command=self.on_silence_param_change,
-                                           bg='#f0f0f0', fg='#2c3e50',
-                                           length=100)
+        self.silence_thresh_scale = tk.Scale(
+            thresh_frame,
+            from_=-60,
+            to=-20,
+            orient=tk.HORIZONTAL,
+            variable=self.silence_thresh,
+            command=self.on_silence_param_change,
+            bg="#f0f0f0",
+            fg="#2c3e50",
+            length=100,
+        )
         self.silence_thresh_scale.pack(pady=2)
 
         # Frame para los botones de control
-        control_frame = tk.Frame(self.root, bg='#f0f0f0')
+        control_frame = tk.Frame(self.root, bg="#f0f0f0")
         control_frame.pack(pady=20)
 
         # Botón para cargar modelos (inicialmente habilitado)
-        self.load_models_btn = tk.Button(control_frame, text="🔄 Cargar Whisper",
-                                        command=self.load_whisper_model,
-                                        font=('Arial', 12, 'bold'),
-                                        bg='#3498db', fg='white',
-                                        padx=20, pady=10)
+        self.load_models_btn = tk.Button(
+            control_frame,
+            text="🔄 Cargar Whisper",
+            command=self.load_whisper_model,
+            font=("Arial", 12, "bold"),
+            bg="#3498db",
+            fg="white",
+            padx=20,
+            pady=10,
+        )
         self.load_models_btn.pack(side=tk.LEFT, padx=10)
 
         # Botón para grabar
-        self.record_btn = tk.Button(control_frame, text="🎤 Hablar",
-                                   command=self.toggle_recording,
-                                   font=('Arial', 12, 'bold'),
-                                   bg='#2ecc71', fg='white',
-                                   padx=20, pady=10,
-                                   state=tk.NORMAL)
+        self.record_btn = tk.Button(
+            control_frame,
+            text="🎤 Hablar",
+            command=self.toggle_recording,
+            font=("Arial", 12, "bold"),
+            bg="#2ecc71",
+            fg="white",
+            padx=20,
+            pady=10,
+            state=tk.NORMAL,
+        )
         self.record_btn.pack(side=tk.LEFT, padx=10)
 
         # Botón para reproducir traducción
-        self.play_btn = tk.Button(control_frame, text="🔊 Reproducir",
-                                 command=self.play_translation,
-                                 font=('Arial', 12, 'bold'),
-                                 bg='#e74c3c', fg='white',
-                                 padx=20, pady=10,
-                                 state=tk.DISABLED)
+        self.play_btn = tk.Button(
+            control_frame,
+            text="🔊 Reproducir",
+            command=self.play_translation,
+            font=("Arial", 12, "bold"),
+            bg="#e74c3c",
+            fg="white",
+            padx=20,
+            pady=10,
+            state=tk.DISABLED,
+        )
         self.play_btn.pack(side=tk.LEFT, padx=10)
 
         # Frame para el contenido principal
-        content_frame = tk.Frame(self.root, bg='#f0f0f0')
+        content_frame = tk.Frame(self.root, bg="#f0f0f0")
         content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
         # Panel izquierdo - Texto original
-        left_panel = tk.Frame(content_frame, bg='#f0f0f0')
+        left_panel = tk.Frame(content_frame, bg="#f0f0f0")
         left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
 
-        tk.Label(left_panel, text="📝 Texto Original",
-                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#2c3e50').pack(anchor=tk.W)
+        tk.Label(
+            left_panel,
+            text="You said",
+            font=("Arial", 14, "bold"),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+        ).pack(anchor=tk.W)
 
-        self.original_text = scrolledtext.ScrolledText(left_panel,
-                                                      wrap=tk.WORD,
-                                                      font=('Arial', 12),
-                                                      height=8,
-                                                      bg='#ffffff',
-                                                      fg='#2c3e50')
+        self.original_text = scrolledtext.ScrolledText(
+            left_panel,
+            wrap=tk.WORD,
+            font=("Arial", 12),
+            height=8,
+            bg="#ffffff",
+            fg="#555555",
+        )
         self.original_text.pack(fill=tk.BOTH, expand=True, pady=(5, 10))
 
         # Panel derecho - Texto traducido
-        right_panel = tk.Frame(content_frame, bg='#f0f0f0')
+        right_panel = tk.Frame(content_frame, bg="#f0f0f0")
         right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0))
 
-        tk.Label(right_panel, text="🔄 Traducción",
-                font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='#2c3e50').pack(anchor=tk.W)
+        tk.Label(
+            right_panel,
+            text="Translation",
+            font=("Arial", 14, "bold"),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+        ).pack(anchor=tk.W)
 
-        self.translated_text = scrolledtext.ScrolledText(right_panel,
-                                                        wrap=tk.WORD,
-                                                        font=('Arial', 12),
-                                                        height=8,
-                                                        bg='#ffffff',
-                                                        fg='#2c3e50')
+        self.translated_text = scrolledtext.ScrolledText(
+            right_panel,
+            wrap=tk.WORD,
+            font=("Arial", 12),
+            height=8,
+            bg="#ffffff",
+            fg="#27ae60",
+        )
         self.translated_text.pack(fill=tk.BOTH, expand=True, pady=(5, 10))
 
+        # ── Meeting Mode Panel ───────────────────────────────────────────────
+        meeting_frame = tk.LabelFrame(
+            self.root,
+            text=" Meeting Mode ",
+            font=("Arial", 11, "bold"),
+            bg="#f0f0f0",
+            fg="#2c3e50",
+            padx=10,
+            pady=8,
+        )
+        meeting_frame.pack(fill=tk.X, padx=20, pady=(0, 6))
+
+        # Row 1: toggle button + output device selector
+        meeting_row1 = tk.Frame(meeting_frame, bg="#f0f0f0")
+        meeting_row1.pack(fill=tk.X, pady=(0, 4))
+
+        self.meeting_toggle_btn = tk.Button(
+            meeting_row1,
+            text="● Start Meeting Mode",
+            command=self.toggle_meeting_mode,
+            font=("Arial", 11, "bold"),
+            bg="#27ae60",
+            fg="white",
+            padx=12,
+            pady=6,
+            relief=tk.FLAT,
+        )
+        self.meeting_toggle_btn.pack(side=tk.LEFT)
+
+        tk.Label(
+            meeting_row1,
+            text="  Output to:",
+            font=("Arial", 10),
+            bg="#f0f0f0",
+            fg="#555555",
+        ).pack(side=tk.LEFT)
+
+        self.meeting_device_combo = ttk.Combobox(
+            meeting_row1,
+            textvariable=self.meeting_output_device_var,
+            state="readonly",
+            width=28,
+            font=("Arial", 10),
+        )
+        self.meeting_device_combo.pack(side=tk.LEFT, padx=(4, 0))
+
+        refresh_btn = tk.Button(
+            meeting_row1,
+            text="↺",
+            command=self._refresh_output_devices,
+            font=("Arial", 11),
+            bg="#ecf0f1",
+            fg="#2c3e50",
+            padx=6,
+            pady=4,
+            relief=tk.FLAT,
+        )
+        refresh_btn.pack(side=tk.LEFT, padx=(4, 0))
+
+        # Row 2: setup link + live status
+        meeting_row2 = tk.Frame(meeting_frame, bg="#f0f0f0")
+        meeting_row2.pack(fill=tk.X)
+
+        setup_link = tk.Label(
+            meeting_row2,
+            text="First time? View setup instructions",
+            font=("Arial", 9, "underline"),
+            bg="#f0f0f0",
+            fg="#3498db",
+            cursor="hand2",
+        )
+        setup_link.pack(side=tk.LEFT)
+        setup_link.bind("<Button-1>", lambda _e: self._show_meeting_setup())
+
+        self.meeting_status_label = tk.Label(
+            meeting_row2,
+            textvariable=self.meeting_status_text,
+            font=("Arial", 9, "bold"),
+            bg="#f0f0f0",
+            fg="#95a5a6",
+        )
+        self.meeting_status_label.pack(side=tk.RIGHT)
+
+        # Populate device list now
+        self._refresh_output_devices()
+
+        # ── Status bar ───────────────────────────────────────────────────────
         # Barra de estado con múltiples componentes
-        self.status_frame = tk.Frame(self.root, bg='#34495e')
+        self.status_frame = tk.Frame(self.root, bg="#34495e")
         self.status_frame.pack(fill=tk.X, side=tk.BOTTOM)
 
         # Frame superior para indicadores de estado
-        self.status_upper_frame = tk.Frame(self.status_frame, bg='#34495e')
+        self.status_upper_frame = tk.Frame(self.status_frame, bg="#34495e")
         self.status_upper_frame.pack(fill=tk.X, pady=2)
 
         # Frame izquierdo para el medidor de micrófono
-        self.mic_frame = tk.Frame(self.status_upper_frame, bg='#34495e')
+        self.mic_frame = tk.Frame(self.status_upper_frame, bg="#34495e")
         self.mic_frame.pack(side=tk.LEFT, padx=10)
 
         # Etiqueta del medidor de micrófono
-        self.mic_label = tk.Label(self.mic_frame, text="🎤",
-                                 font=('Arial', 12), bg='#34495e', fg='white')
+        self.mic_label = tk.Label(
+            self.mic_frame, text="🎤", font=("Arial", 12), bg="#34495e", fg="white"
+        )
         self.mic_label.pack(side=tk.LEFT)
 
         # Barra de nivel de micrófono
-        self.mic_level_canvas = tk.Canvas(self.mic_frame, width=100, height=8,
-                                        bg='#2c3e50', highlightthickness=0)
+        self.mic_level_canvas = tk.Canvas(
+            self.mic_frame, width=100, height=8, bg="#2c3e50", highlightthickness=0
+        )
         self.mic_level_canvas.pack(side=tk.LEFT, padx=5)
 
         # Indicador de escucha/procesamiento
-        self.listening_indicator = tk.Label(self.status_upper_frame,
-                                          text="", font=('Arial', 10, 'bold'),
-                                          bg='#34495e', fg='yellow')
+        self.listening_indicator = tk.Label(
+            self.status_upper_frame,
+            text="",
+            font=("Arial", 10, "bold"),
+            bg="#34495e",
+            fg="yellow",
+        )
         self.listening_indicator.pack(side=tk.RIGHT, padx=10)
 
         # Frame central para el estado del modelo
-        self.model_status_frame = tk.Frame(self.status_upper_frame, bg='#34495e')
+        self.model_status_frame = tk.Frame(self.status_upper_frame, bg="#34495e")
         self.model_status_frame.pack(side=tk.LEFT, padx=20, fill=tk.X, expand=True)
 
-        self.model_status_label = tk.Label(self.model_status_frame,
-                                          text="📋 Model Status: Not loaded",
-                                          font=('Arial', 9), bg='#34495e', fg='#95a5a6')
+        self.model_status_label = tk.Label(
+            self.model_status_frame,
+            text="📋 Model Status: Not loaded",
+            font=("Arial", 9),
+            bg="#34495e",
+            fg="#95a5a6",
+        )
         self.model_status_label.pack()
 
         # Frame inferior para el estado general
-        self.status_lower_frame = tk.Frame(self.status_frame, bg='#34495e')
+        self.status_lower_frame = tk.Frame(self.status_frame, bg="#34495e")
         self.status_lower_frame.pack(fill=tk.X, pady=2)
 
-        self.status_label = tk.Label(self.status_lower_frame, text="🟡 Listo para usar (modelos se cargan automáticamente)",
-                                    font=('Arial', 10), bg='#34495e', fg='white')
+        self.status_label = tk.Label(
+            self.status_lower_frame,
+            text="🟡 Listo para usar (modelos se cargan automáticamente)",
+            font=("Arial", 10),
+            bg="#34495e",
+            fg="white",
+        )
         self.status_label.pack(pady=2)
 
         # Progress bar para carga de modelos
         self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(self.status_lower_frame, variable=self.progress_var,
-                                           maximum=100, length=300)
+        self.progress_bar = ttk.Progressbar(
+            self.status_lower_frame, variable=self.progress_var, maximum=100, length=300
+        )
 
         # Spinner para mostrar carga de modelos
-        self.spinner_label = tk.Label(self.status_lower_frame, text="",
-                                    font=('Arial', 10), bg='#34495e', fg='yellow')
+        self.spinner_label = tk.Label(
+            self.status_lower_frame,
+            text="",
+            font=("Arial", 10),
+            bg="#34495e",
+            fg="yellow",
+        )
         self.spinner_active = False
-        self.spinner_chars = ['◐', '◓', '◑', '◒']
+        self.spinner_chars = ["◐", "◓", "◑", "◒"]
         self.spinner_index = 0
 
         # Inicializar la actualización del medidor de micrófono
@@ -331,17 +533,17 @@ class FluentAIGUI:
         for key, value in self.translation_directions.items():
             if value == display_text:
                 return key
-        return 'es->en'  # Default
+        return "es->en"  # Default
 
     def get_source_and_target_from_direction(self, direction=None):
         """Obtiene idioma origen y destino desde la dirección seleccionada"""
         if direction is None:
             direction = self.get_direction_from_display(self.direction_combo.get())
 
-        if '->' in direction:
-            src, tgt = direction.split('->')
+        if "->" in direction:
+            src, tgt = direction.split("->")
             return src, tgt
-        return 'es', 'en'  # Default
+        return "es", "en"  # Default
 
     def on_direction_change(self, event=None):
         """Maneja el cambio de dirección de traducción"""
@@ -352,10 +554,12 @@ class FluentAIGUI:
         self.load_specific_model(src_lang, tgt_lang)
 
         # Actualizar status
-        self.update_status(f"📋 Dirección seleccionada: {self.translation_directions[direction]}", "lightblue")
+        self.update_status(
+            f"📋 Dirección seleccionada: {self.translation_directions[direction]}",
+            "lightblue",
+        )
 
-
-    def update_status(self, message, color='white'):
+    def update_status(self, message, color="white"):
         """Actualiza la barra de estado"""
         self.status_label.config(text=message, fg=color)
         self.root.update_idletasks()
@@ -367,7 +571,6 @@ class FluentAIGUI:
         else:
             self.progress_bar.pack_forget()
 
-
     def toggle_recording(self):
         """Inicia o detiene la grabación"""
         if self.is_recording:
@@ -378,7 +581,7 @@ class FluentAIGUI:
     def start_recording(self):
         """Inicia la grabación"""
         self.is_recording = True
-        self.record_btn.config(text="🛑 Detener", bg='#e74c3c')
+        self.record_btn.config(text="🛑 Detener", bg="#e74c3c")
 
         # Activar indicador de escucha
         self.update_listening_indicator("listening")
@@ -399,7 +602,7 @@ class FluentAIGUI:
     def stop_recording(self):
         """Detiene la grabación"""
         self.is_recording = False
-        self.record_btn.config(text="🎤 Hablar", bg='#2ecc71')
+        self.record_btn.config(text="🎤 Hablar", bg="#2ecc71")
         self.update_status("⏹️ Grabación detenida", "white")
 
         # Desactivar indicador de escucha
@@ -413,7 +616,9 @@ class FluentAIGUI:
                 self.recognizer.adjust_for_ambient_noise(source, duration=1)
 
                 # Escuchar audio con tiempo extendido para capturar oraciones completas (3 minutos)
-                audio = self.recognizer.listen(source, timeout=10, phrase_time_limit=None)
+                audio = self.recognizer.listen(
+                    source, timeout=10, phrase_time_limit=None
+                )
 
             if not self.is_recording:
                 return
@@ -424,10 +629,14 @@ class FluentAIGUI:
             # Obtener idiomas de la dirección seleccionada
             src_lang, tgt_lang = self.get_source_and_target_from_direction()
 
-            self.message_queue.put(("status", f"🔍 Procesando con Whisper ({src_lang})...", "orange"))
+            self.message_queue.put(
+                ("status", f"🔍 Procesando con Whisper ({src_lang})...", "orange")
+            )
 
             # Procesar con Whisper usando el idioma de origen específico
-            texto_transcrito, idioma_detectado = self.process_with_whisper(audio, src_lang)
+            texto_transcrito, idioma_detectado = self.process_with_whisper(
+                audio, src_lang
+            )
 
             if texto_transcrito:
                 self.message_queue.put(("original_text", texto_transcrito))
@@ -436,22 +645,38 @@ class FluentAIGUI:
                 idioma_origen = src_lang
                 idioma_destino = tgt_lang
 
-                print(f"Usando dirección seleccionada: {idioma_origen} → {idioma_destino}")
+                print(
+                    f"Usando dirección seleccionada: {idioma_origen} → {idioma_destino}"
+                )
 
-                self.message_queue.put(("status", f"🔄 Traduciendo {idioma_origen}→{idioma_destino}...", "orange"))
+                self.message_queue.put(
+                    (
+                        "status",
+                        f"🔄 Traduciendo {idioma_origen}→{idioma_destino}...",
+                        "orange",
+                    )
+                )
 
                 # Traducir
-                texto_traducido = self.translate_text(texto_transcrito, idioma_origen, idioma_destino)
+                texto_traducido = self.translate_text(
+                    texto_transcrito, idioma_origen, idioma_destino
+                )
 
                 if texto_traducido:
                     self.current_translation = texto_traducido
                     self.message_queue.put(("translated_text", texto_traducido))
-                    self.message_queue.put(("status", "✅ Traducción completada", "lightgreen"))
+                    self.message_queue.put(
+                        ("status", "✅ Traducción completada", "lightgreen")
+                    )
                     self.message_queue.put(("enable_play", True))
                 else:
-                    self.message_queue.put(("status", "❌ Error en la traducción", "red"))
+                    self.message_queue.put(
+                        ("status", "❌ Error en la traducción", "red")
+                    )
             else:
-                self.message_queue.put(("status", "❌ No se pudo procesar el audio", "red"))
+                self.message_queue.put(
+                    ("status", "❌ No se pudo procesar el audio", "red")
+                )
 
         except sr.WaitTimeoutError:
             self.message_queue.put(("status", "⏱️ Tiempo de espera agotado", "orange"))
@@ -465,11 +690,11 @@ class FluentAIGUI:
     def normalize_audio_rms(self, audio_data, target_rms=0.2):
         """
         Normalize audio volume using RMS (Root Mean Square) for better Whisper recognition.
-        
+
         Args:
             audio_data: Audio data as bytes
             target_rms: Target RMS level (0.0 to 1.0)
-        
+
         Returns:
             Normalized audio data as bytes
         """
@@ -478,7 +703,7 @@ class FluentAIGUI:
             audio_array = np.frombuffer(audio_data, dtype=np.int16)
 
             # Calculate current RMS
-            current_rms = np.sqrt(np.mean(audio_array.astype(np.float32)**2))
+            current_rms = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
 
             if current_rms > 0:
                 # Calculate scaling factor
@@ -499,10 +724,10 @@ class FluentAIGUI:
     def apply_automatic_gain_control(self, audio_data):
         """
         Apply basic automatic gain control to improve consistency across microphones.
-        
+
         Args:
             audio_data: Audio data as bytes
-        
+
         Returns:
             Audio data with AGC applied
         """
@@ -515,7 +740,11 @@ class FluentAIGUI:
 
             if peak > 0:
                 # Apply gentle compression - reduce dynamic range
-                compressed = np.sign(audio_array) * np.power(np.abs(audio_array) / peak, 0.7) * peak
+                compressed = (
+                    np.sign(audio_array)
+                    * np.power(np.abs(audio_array) / peak, 0.7)
+                    * peak
+                )
 
                 # Apply mild gain boost for quiet speech
                 gain_factor = min(2.0, 16000 / (peak + 1))
@@ -562,11 +791,15 @@ class FluentAIGUI:
 
                     # Apply audio normalization using RMS for better Whisper recognition
                     print("Aplicando normalización de audio...")
-                    normalized_audio = self.normalize_audio_rms(audio_array.tobytes(), target_rms=0.2)
+                    normalized_audio = self.normalize_audio_rms(
+                        audio_array.tobytes(), target_rms=0.2
+                    )
 
                     # Apply automatic gain control for consistency across microphones
                     print("Aplicando control automático de ganancia...")
-                    processed_audio = self.apply_automatic_gain_control(normalized_audio)
+                    processed_audio = self.apply_automatic_gain_control(
+                        normalized_audio
+                    )
 
                     # Convert back to numpy array and save properly
                     processed_array = np.frombuffer(processed_audio, dtype=np.int16)
@@ -575,10 +808,14 @@ class FluentAIGUI:
                     sf.write(temp_filename, processed_array, sample_rate)
 
                     print(f"Audio guardado en: {temp_filename}")
-                    print(f"Tamaño del archivo de audio: {os.path.getsize(temp_filename)} bytes")
+                    print(
+                        f"Tamaño del archivo de audio: {os.path.getsize(temp_filename)} bytes"
+                    )
 
                 except ImportError:
-                    print("Warning: soundfile not available, using original audio without processing")
+                    print(
+                        "Warning: soundfile not available, using original audio without processing"
+                    )
                     # Just use the original WAV data
                     with open(temp_filename, "wb") as f:
                         f.write(wav_data)
@@ -586,7 +823,9 @@ class FluentAIGUI:
                     print(f"Tamaño del archivo de audio: {len(wav_data)} bytes")
 
                 except Exception as e:
-                    print(f"Warning: Audio processing failed: {e}, using original audio")
+                    print(
+                        f"Warning: Audio processing failed: {e}, using original audio"
+                    )
                     # Fall back to original WAV data
                     with open(temp_filename, "wb") as f:
                         f.write(wav_data)
@@ -595,14 +834,16 @@ class FluentAIGUI:
 
             # Verificar que el archivo existe
             if os.path.exists(temp_filename):
-                print(f"Archivo temporal creado correctamente: {os.path.getsize(temp_filename)} bytes")
+                print(
+                    f"Archivo temporal creado correctamente: {os.path.getsize(temp_filename)} bytes"
+                )
             else:
                 print("ERROR: El archivo temporal no se creó")
                 return None, None
 
             # Obtener el modelo Whisper
             if not self.current_whisper_model:
-                self.current_whisper_model = self.model_loader.get_whisper_model('base')
+                self.current_whisper_model = self.model_loader.get_whisper_model("base")
 
             if not self.current_whisper_model:
                 print("ERROR: No se pudo cargar el modelo Whisper")
@@ -622,10 +863,12 @@ class FluentAIGUI:
             print(f"- Longitud después de strip: {len(result['text'].strip())}")
 
             # Mostrar información adicional del resultado
-            if 'segments' in result:
+            if "segments" in result:
                 print(f"- Número de segmentos: {len(result['segments'])}")
-                for i, segment in enumerate(result['segments']):
-                    print(f"  Segmento {i}: '{segment['text']}' (confianza: {segment.get('avg_logprob', 'N/A')})")
+                for i, segment in enumerate(result["segments"]):
+                    print(
+                        f"  Segmento {i}: '{segment['text']}' (confianza: {segment.get('avg_logprob', 'N/A')})"
+                    )
 
             texto_transcrito = result["text"].strip()
             idioma_detectado = result["language"]
@@ -658,6 +901,7 @@ class FluentAIGUI:
             print(f"\nERROR EN WHISPER: {e}")
             print(f"Tipo de error: {type(e)}")
             import traceback
+
             traceback.print_exc()
             print("=== FIN DE PROCESO WHISPER (ERROR) ===\n")
             return None, None
@@ -665,12 +909,12 @@ class FluentAIGUI:
     def transcribe_long_audio_gui(self, audio_file, source_code, chunk_length=30):
         """
         Transcribe audio files in chunks for GUI version.
-        
+
         Args:
             audio_file: Path to the audio file
             source_code: Language code or 'auto' for auto-detection
             chunk_length: Length of each chunk in seconds (default: 30)
-        
+
         Returns:
             Combined transcription result
         """
@@ -685,19 +929,28 @@ class FluentAIGUI:
 
             print(f"Audio duration: {audio_duration:.2f} seconds")
 
+            # Skip transcription if audio is too short for Whisper to process
+            if audio_duration < 0.5:
+                print(
+                    f"Audio too short ({audio_duration:.2f}s), skipping transcription"
+                )
+                return {
+                    "text": "",
+                    "language": source_code if source_code != "auto" else "es",
+                    "segments": [],
+                }
+
             # If audio is short enough, process normally
+            # Note: best_of is for sampling (temperature > 0), not compatible with beam_size at temperature=0
             if audio_duration <= chunk_length:
-                if source_code != 'auto':
+                if source_code != "auto":
                     return self.current_whisper_model.transcribe(
                         audio_file,
                         language=source_code,
                         word_timestamps=True,
                         fp16=False,
                         temperature=0.0,
-                        best_of=5,
-                        beam_size=5,
-                        patience=2.0,
-                        condition_on_previous_text=True
+                        condition_on_previous_text=True,
                     )
                 else:
                     return self.current_whisper_model.transcribe(
@@ -705,10 +958,7 @@ class FluentAIGUI:
                         word_timestamps=True,
                         fp16=False,
                         temperature=0.0,
-                        best_of=5,
-                        beam_size=5,
-                        patience=2.0,
-                        condition_on_previous_text=True
+                        condition_on_previous_text=True,
                     )
 
             # Process in chunks for long audio
@@ -717,26 +967,30 @@ class FluentAIGUI:
             texts = []
 
             for i in range(0, len(audio), chunk_size):
-                chunk = audio[i:i + chunk_size]
+                chunk = audio[i : i + chunk_size]
                 chunks.append(chunk)
 
                 # Create temporary file for this chunk
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_chunk:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".wav", delete=False
+                ) as temp_chunk:
                     chunk_filename = temp_chunk.name
 
                     # Write chunk to temporary file
                     import soundfile as sf
+
                     sf.write(chunk_filename, chunk, sr)
 
                     try:
                         # Transcribe chunk
-                        if source_code != 'auto':
+                        if source_code != "auto":
                             chunk_result = self.current_whisper_model.transcribe(
-                                chunk_filename,
-                                language=source_code
+                                chunk_filename, language=source_code
                             )
                         else:
-                            chunk_result = self.current_whisper_model.transcribe(chunk_filename)
+                            chunk_result = self.current_whisper_model.transcribe(
+                                chunk_filename
+                            )
 
                         texts.append(chunk_result["text"])
                         print(f"Chunk {len(texts)}: '{chunk_result['text']}'")
@@ -755,10 +1009,12 @@ class FluentAIGUI:
             # Use the language from the first non-empty chunk
             language = "es"  # Default
             try:
-                if source_code != 'auto':
+                if source_code != "auto":
                     language = source_code
                 else:
-                    first_chunk_result = self.current_whisper_model.transcribe(audio_file, language=None)
+                    first_chunk_result = self.current_whisper_model.transcribe(
+                        audio_file, language=None
+                    )
                     language = first_chunk_result["language"]
             except:
                 pass
@@ -766,23 +1022,21 @@ class FluentAIGUI:
             return {
                 "text": combined_text,
                 "language": language,
-                "segments": []  # Could be enhanced to combine segments
+                "segments": [],  # Could be enhanced to combine segments
             }
 
         except ImportError:
-            print("Warning: librosa not available, falling back to regular transcription")
-            # Fall back to regular transcription
-            if source_code != 'auto':
+            print(
+                "Warning: librosa not available, falling back to regular transcription"
+            )
+            if source_code != "auto":
                 return self.current_whisper_model.transcribe(
                     audio_file,
                     language=source_code,
                     word_timestamps=True,
                     fp16=False,
                     temperature=0.0,
-                    best_of=5,
-                    beam_size=5,
-                    patience=2.0,
-                    condition_on_previous_text=True
+                    condition_on_previous_text=True,
                 )
             else:
                 return self.current_whisper_model.transcribe(
@@ -790,25 +1044,18 @@ class FluentAIGUI:
                     word_timestamps=True,
                     fp16=False,
                     temperature=0.0,
-                    best_of=5,
-                    beam_size=5,
-                    patience=2.0,
-                    condition_on_previous_text=True
+                    condition_on_previous_text=True,
                 )
         except Exception as e:
             print(f"Error in chunked transcription: {e}")
-            # Fall back to regular transcription
-            if source_code != 'auto':
+            if source_code != "auto":
                 return self.current_whisper_model.transcribe(
                     audio_file,
                     language=source_code,
                     word_timestamps=True,
                     fp16=False,
                     temperature=0.0,
-                    best_of=5,
-                    beam_size=5,
-                    patience=2.0,
-                    condition_on_previous_text=True
+                    condition_on_previous_text=True,
                 )
             else:
                 return self.current_whisper_model.transcribe(
@@ -816,10 +1063,7 @@ class FluentAIGUI:
                     word_timestamps=True,
                     fp16=False,
                     temperature=0.0,
-                    best_of=5,
-                    beam_size=5,
-                    patience=2.0,
-                    condition_on_previous_text=True
+                    condition_on_previous_text=True,
                 )
 
     def validate_text(self, texto, idioma_detectado):
@@ -846,9 +1090,11 @@ class FluentAIGUI:
         # Verificar caracteres latinos (ampliado para alemán y francés)
         print("\n>>> VERIFICANDO CARACTERES LATINOS <<<")
 
-        caracteres_latinos = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
-                               'áéíóúüñÁÉÍÓÚÜÑ¿¡äöüÄÖÜßàâäçèêëïîôùûüÿÀÂÄÇÈÊËÏÎÔÙÛÜŸ'
-                               '.,;:!?()[]{}"\'-_ ')
+        caracteres_latinos = set(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "áéíóúüñÁÉÍÓÚÜÑ¿¡äöüÄÖÜßàâäçèêëïîôùûüÿÀÂÄÇÈÊËÏÎÔÙÛÜŸ"
+            ".,;:!?()[]{}\"'-_ "
+        )
 
         caracteres_texto = set(texto)
         caracteres_no_latinos = caracteres_texto - caracteres_latinos
@@ -864,16 +1110,20 @@ class FluentAIGUI:
             print("Umbral máximo permitido: 20%")
 
             if porcentaje_no_latinos > 0.2:
-                print(f"❌ FALLO: Demasiados caracteres no latinos ({porcentaje_no_latinos:.2%} > 20%)")
+                print(
+                    f"❌ FALLO: Demasiados caracteres no latinos ({porcentaje_no_latinos:.2%} > 20%)"
+                )
                 print("=== FIN VALIDACIÓN (FALLIDO POR CARACTERES NO LATINOS) ===\n")
                 return False
             else:
-                print(f"✅ ÉXITO: Porcentaje de caracteres no latinos aceptable ({porcentaje_no_latinos:.2%} <= 20%)")
+                print(
+                    f"✅ ÉXITO: Porcentaje de caracteres no latinos aceptable ({porcentaje_no_latinos:.2%} <= 20%)"
+                )
         else:
             print("✅ ÉXITO: Todos los caracteres son latinos")
 
         # Verificar idioma detectado (usando códigos ISO ampliado)
-        idiomas_validos = ['es', 'en', 'de', 'fr']
+        idiomas_validos = ["es", "en", "de", "fr"]
         print(f"Idiomas válidos: {idiomas_validos}")
         print(f"Idioma detectado: '{idioma_detectado}'")
 
@@ -882,34 +1132,39 @@ class FluentAIGUI:
             print("=== FIN VALIDACIÓN (EXITOSO) ===\n")
             return True
         else:
-            print(f"FALLO: Idioma no válido ('{idioma_detectado}' no está en {idiomas_validos})")
+            print(
+                f"FALLO: Idioma no válido ('{idioma_detectado}' no está en {idiomas_validos})"
+            )
             print("=== FIN VALIDACIÓN (FALLIDO) ===\n")
             return False
 
     def determine_target_language(self, idioma_origen, target_selection):
         """Determina el idioma de destino basado en la selección y restricciones"""
-        if target_selection == 'auto':
+        if target_selection == "auto":
             # Lógica automática: español <-> inglés por defecto
-            if idioma_origen == 'es':
-                return 'en'
-            elif idioma_origen == 'en':
-                return 'es'
-            elif idioma_origen == 'de':
-                return 'es'  # Alemán por defecto a español
-            elif idioma_origen == 'fr':
-                return 'es'  # Francés por defecto a español
+            if idioma_origen == "es":
+                return "en"
+            elif idioma_origen == "en":
+                return "es"
+            elif idioma_origen == "de":
+                return "es"  # Alemán por defecto a español
+            elif idioma_origen == "fr":
+                return "es"  # Francés por defecto a español
             else:
-                return 'en'  # Cualquier otro a inglés
+                return "en"  # Cualquier otro a inglés
         else:
             # Verificar si la combinación es válida
             valid_combinations = {
-                'es': ['en', 'de', 'fr'],
-                'en': ['es', 'de', 'fr'],
-                'de': ['es', 'en'],
-                'fr': ['es', 'en']
+                "es": ["en", "de", "fr"],
+                "en": ["es", "de", "fr"],
+                "de": ["es", "en"],
+                "fr": ["es", "en"],
             }
 
-            if idioma_origen in valid_combinations and target_selection in valid_combinations[idioma_origen]:
+            if (
+                idioma_origen in valid_combinations
+                and target_selection in valid_combinations[idioma_origen]
+            ):
                 return target_selection
             else:
                 return None
@@ -929,7 +1184,7 @@ class FluentAIGUI:
                 # Call the translator pipeline with clean parameters
                 try:
                     resultado = translator(texto, max_length=512, do_sample=False)
-                    translation = resultado[0]['translation_text']
+                    translation = resultado[0]["translation_text"]
                     print(f"Traducción: '{translation}'")
                     print("=== FIN TRADUCCIÓN (EXITOSO) ===\n")
                     return translation
@@ -937,12 +1192,14 @@ class FluentAIGUI:
                     print(f"Pipeline error: {pipeline_error}")
                     # Try a simpler call without extra parameters
                     resultado = translator(texto)
-                    translation = resultado[0]['translation_text']
+                    translation = resultado[0]["translation_text"]
                     print(f"Traducción: '{translation}'")
                     print("=== FIN TRADUCCIÓN (EXITOSO) ===\n")
                     return translation
             else:
-                print(f"ERROR: No hay traductor para {idioma_origen} → {idioma_destino}")
+                print(
+                    f"ERROR: No hay traductor para {idioma_origen} → {idioma_destino}"
+                )
                 print("=== FIN TRADUCCIÓN (FALLIDO) ===\n")
                 return None
 
@@ -964,15 +1221,20 @@ class FluentAIGUI:
         thread.start()
 
     def play_audio(self):
-        """Reproduce el audio de la traducción (offline, via pyttsx3)"""
+        """Reproduce el audio de la traducción."""
+        if not self.current_translation:
+            return
         try:
-            engine = pyttsx3.init()
-            engine.setProperty('rate', 150)
-            engine.say(self.current_translation)
-            engine.runAndWait()
+            lang = self.detect_language_for_tts(self.current_translation)
+            samples = synthesize_to_numpy(self.current_translation, lang, sample_rate=44100)
+            if samples.size == 0:
+                self.message_queue.put(("status", "❌ TTS no generó audio", "red"))
+                return
+            sd.play(samples, samplerate=44100)
+            sd.wait()
             self.message_queue.put(("status", "✅ Reproducción completada", "lightgreen"))
         except Exception as e:
-            self.message_queue.put(("status", f"❌ Error reproduciendo: {str(e)}", "red"))
+            self.message_queue.put(("status", f"❌ Error reproduciendo: {e}", "red"))
 
     def detect_language_for_tts(self, texto):
         """Detecta el idioma del texto para TTS"""
@@ -980,42 +1242,124 @@ class FluentAIGUI:
 
         # Palabras y caracteres característicos por idioma
         spanish_indicators = {
-            'words': ['el', 'la', 'de', 'que', 'y', 'es', 'en', 'un', 'una', 'con', 'por', 'para', 'hola', 'gracias', 'sí', 'no', 'dónde', 'cuándo', 'cómo', 'qué'],
-            'chars': ['ñ', 'á', 'é', 'í', 'ó', 'ú', '¿', '¡']
+            "words": [
+                "el",
+                "la",
+                "de",
+                "que",
+                "y",
+                "es",
+                "en",
+                "un",
+                "una",
+                "con",
+                "por",
+                "para",
+                "hola",
+                "gracias",
+                "sí",
+                "no",
+                "dónde",
+                "cuándo",
+                "cómo",
+                "qué",
+            ],
+            "chars": ["ñ", "á", "é", "í", "ó", "ú", "¿", "¡"],
         }
 
         german_indicators = {
-            'words': ['der', 'die', 'das', 'und', 'ich', 'sie', 'mit', 'für', 'auf', 'von', 'ist', 'war', 'haben', 'werden', 'sein', 'nicht', 'auch', 'aber', 'oder', 'wie'],
-            'chars': ['ä', 'ö', 'ü', 'ß']
+            "words": [
+                "der",
+                "die",
+                "das",
+                "und",
+                "ich",
+                "sie",
+                "mit",
+                "für",
+                "auf",
+                "von",
+                "ist",
+                "war",
+                "haben",
+                "werden",
+                "sein",
+                "nicht",
+                "auch",
+                "aber",
+                "oder",
+                "wie",
+            ],
+            "chars": ["ä", "ö", "ü", "ß"],
         }
 
         french_indicators = {
-            'words': ['le', 'la', 'les', 'et', 'de', 'je', 'tu', 'il', 'elle', 'nous', 'vous', 'ils', 'elles', 'avec', 'pour', 'sur', 'dans', 'mais', 'ou', 'où', 'comment'],
-            'chars': ['à', 'â', 'ä', 'ç', 'è', 'ê', 'ë', 'ï', 'î', 'ô', 'ù', 'û', 'ü', 'ÿ']
+            "words": [
+                "le",
+                "la",
+                "les",
+                "et",
+                "de",
+                "je",
+                "tu",
+                "il",
+                "elle",
+                "nous",
+                "vous",
+                "ils",
+                "elles",
+                "avec",
+                "pour",
+                "sur",
+                "dans",
+                "mais",
+                "ou",
+                "où",
+                "comment",
+            ],
+            "chars": [
+                "à",
+                "â",
+                "ä",
+                "ç",
+                "è",
+                "ê",
+                "ë",
+                "ï",
+                "î",
+                "ô",
+                "ù",
+                "û",
+                "ü",
+                "ÿ",
+            ],
         }
 
         # Calcular puntuaciones para cada idioma
-        spanish_score = sum(1 for word in spanish_indicators['words'] if word in texto_lower) + \
-                       sum(1 for char in spanish_indicators['chars'] if char in texto_lower)
+        spanish_score = sum(
+            1 for word in spanish_indicators["words"] if word in texto_lower
+        ) + sum(1 for char in spanish_indicators["chars"] if char in texto_lower)
 
-        german_score = sum(1 for word in german_indicators['words'] if word in texto_lower) + \
-                      sum(1 for char in german_indicators['chars'] if char in texto_lower)
+        german_score = sum(
+            1 for word in german_indicators["words"] if word in texto_lower
+        ) + sum(1 for char in german_indicators["chars"] if char in texto_lower)
 
-        french_score = sum(1 for word in french_indicators['words'] if word in texto_lower) + \
-                      sum(1 for char in french_indicators['chars'] if char in texto_lower)
+        french_score = sum(
+            1 for word in french_indicators["words"] if word in texto_lower
+        ) + sum(1 for char in french_indicators["chars"] if char in texto_lower)
 
         # Determinar idioma basado en la puntuación más alta
-        scores = {'es': spanish_score, 'de': german_score, 'fr': french_score}
+        scores = {"es": spanish_score, "de": german_score, "fr": french_score}
         max_score = max(scores.values())
 
         if max_score == 0:
-            return 'en'  # Por defecto inglés si no hay indicadores
+            return "en"  # Por defecto inglés si no hay indicadores
 
         for lang, score in scores.items():
             if score == max_score:
                 return lang
 
-        return 'en'  # Fallback a inglés
+        return "en"  # Fallback a inglés
 
     def check_message_queue(self):
         """Verifica la cola de mensajes y actualiza la UI"""
@@ -1024,7 +1368,7 @@ class FluentAIGUI:
                 message_type, *args = self.message_queue.get_nowait()
 
                 if message_type == "status":
-                    self.update_status(args[0], args[1] if len(args) > 1 else 'white')
+                    self.update_status(args[0], args[1] if len(args) > 1 else "white")
                 elif message_type == "progress":
                     self.show_progress(args[0])
                 elif message_type == "progress_value":
@@ -1042,7 +1386,7 @@ class FluentAIGUI:
                     self.translated_text.delete(1.0, tk.END)
                     self.translated_text.insert(tk.END, args[0])
                 elif message_type == "reset_record_btn":
-                    self.record_btn.config(text="🎤 Hablar", bg='#2ecc71')
+                    self.record_btn.config(text="🎤 Hablar", bg="#2ecc71")
                 elif message_type == "spinner":
                     if args[0] == "start":
                         self.start_spinner()
@@ -1051,7 +1395,9 @@ class FluentAIGUI:
                 elif message_type == "listening_indicator":
                     self.update_listening_indicator(args[0])
                 elif message_type == "model_status":
-                    self.update_model_status(args[0], args[1], args[2] if len(args) > 2 else None)
+                    self.update_model_status(
+                        args[0], args[1], args[2] if len(args) > 2 else None
+                    )
 
         except queue.Empty:
             pass
@@ -1072,9 +1418,13 @@ class FluentAIGUI:
                 self.message_queue.put(("model_status", "whisper", "loaded"))
         elif "translator" in message.lower():
             if progress < 100:
-                self.message_queue.put(("model_status", "translator", "loading", message))
+                self.message_queue.put(
+                    ("model_status", "translator", "loading", message)
+                )
             else:
-                self.message_queue.put(("model_status", "translator", "loaded", message))
+                self.message_queue.put(
+                    ("model_status", "translator", "loaded", message)
+                )
 
     def start_spinner(self):
         """Inicia el spinner de carga"""
@@ -1103,9 +1453,12 @@ class FluentAIGUI:
 
     def load_models_for_languages(self, lang_list):
         """Carga modelos para una lista de idiomas en un hilo separado"""
+
         def load_in_thread():
             self.message_queue.put(("spinner", "start"))
-            self.message_queue.put(("status", "🔄 Cargando modelos para auto-detección...", "orange"))
+            self.message_queue.put(
+                ("status", "🔄 Cargando modelos para auto-detección...", "orange")
+            )
 
             # Usar load_all_for_languages para cargar todos los modelos necesarios
             results = self.model_loader.load_all_for_languages(lang_list)
@@ -1115,46 +1468,72 @@ class FluentAIGUI:
 
             self.message_queue.put(("spinner", "stop"))
             if success_count == total_count:
-                self.message_queue.put(("status", f"✅ Todos los modelos cargados ({success_count}/{total_count})", "lightgreen"))
+                self.message_queue.put(
+                    (
+                        "status",
+                        f"✅ Todos los modelos cargados ({success_count}/{total_count})",
+                        "lightgreen",
+                    )
+                )
             else:
-                self.message_queue.put(("status", f"⚠️ Algunos modelos fallaron ({success_count}/{total_count})", "orange"))
+                self.message_queue.put(
+                    (
+                        "status",
+                        f"⚠️ Algunos modelos fallaron ({success_count}/{total_count})",
+                        "orange",
+                    )
+                )
 
         thread = threading.Thread(target=load_in_thread, daemon=True)
         thread.start()
 
     def load_specific_model(self, src_lang, tgt_lang):
         """Carga un modelo específico en un hilo separado"""
+
         def load_in_thread():
             self.message_queue.put(("spinner", "start"))
-            self.message_queue.put(("status", f"🔄 Cargando modelo {src_lang}→{tgt_lang}...", "orange"))
+            self.message_queue.put(
+                ("status", f"🔄 Cargando modelo {src_lang}→{tgt_lang}...", "orange")
+            )
 
             model = self.model_loader.get_model(src_lang, tgt_lang)
 
             self.message_queue.put(("spinner", "stop"))
             if model:
-                self.message_queue.put(("status", f"✅ Modelo {src_lang}→{tgt_lang} cargado", "lightgreen"))
+                self.message_queue.put(
+                    ("status", f"✅ Modelo {src_lang}→{tgt_lang} cargado", "lightgreen")
+                )
             else:
-                self.message_queue.put(("status", f"❌ Error cargando modelo {src_lang}→{tgt_lang}", "red"))
+                self.message_queue.put(
+                    ("status", f"❌ Error cargando modelo {src_lang}→{tgt_lang}", "red")
+                )
 
         thread = threading.Thread(target=load_in_thread, daemon=True)
         thread.start()
 
     def load_whisper_model(self):
         """Carga el modelo Whisper"""
+
         def load_in_thread():
             self.message_queue.put(("spinner", "start"))
-            self.message_queue.put(("status", "🔄 Cargando modelo Whisper...", "orange"))
+            self.message_queue.put(
+                ("status", "🔄 Cargando modelo Whisper...", "orange")
+            )
             self.message_queue.put(("model_status", "whisper", "loading"))
 
-            model = self.model_loader.get_whisper_model('base')
+            model = self.model_loader.get_whisper_model("base")
 
             self.message_queue.put(("spinner", "stop"))
             if model:
                 self.current_whisper_model = model
-                self.message_queue.put(("status", "✅ Modelo Whisper cargado", "lightgreen"))
+                self.message_queue.put(
+                    ("status", "✅ Modelo Whisper cargado", "lightgreen")
+                )
                 self.message_queue.put(("model_status", "whisper", "loaded"))
             else:
-                self.message_queue.put(("status", "❌ Error cargando modelo Whisper", "red"))
+                self.message_queue.put(
+                    ("status", "❌ Error cargando modelo Whisper", "red")
+                )
                 self.message_queue.put(("model_status", "whisper", "error"))
 
         thread = threading.Thread(target=load_in_thread, daemon=True)
@@ -1179,12 +1558,11 @@ class FluentAIGUI:
                 preset=self.silence_preset.get(),
                 min_silence_len=self.min_silence_len.get(),
                 silence_thresh=self.silence_thresh.get(),
-                method='auto'
+                method="auto",
             )
 
             self.silence_integration = SilenceDetectorIntegration(
-                self.recognizer,
-                self.silence_detector
+                self.recognizer, self.silence_detector
             )
 
             # Configurar callbacks
@@ -1195,20 +1573,28 @@ class FluentAIGUI:
                 self.message_queue.put(("status", "🎤 Habla detectada", "lightgreen"))
 
             def on_silence_threshold_exceeded(duration_ms):
-                self.message_queue.put(("status", f"⏹️ Auto-stop: {duration_ms:.0f}ms de silencio", "orange"))
+                self.message_queue.put(
+                    (
+                        "status",
+                        f"⏹️ Auto-stop: {duration_ms:.0f}ms de silencio",
+                        "orange",
+                    )
+                )
                 if self.is_recording:
                     self.root.after(0, self.stop_recording)
 
             self.silence_detector.set_callbacks(
                 on_silence_detected=on_silence_detected,
                 on_speech_detected=on_speech_detected,
-                on_silence_threshold_exceeded=on_silence_threshold_exceeded
+                on_silence_threshold_exceeded=on_silence_threshold_exceeded,
             )
 
             self.update_status("🔇 Detector de silencio activado", "lightgreen")
 
         except Exception as e:
-            self.message_queue.put(("status", f"❌ Error inicializando detector: {str(e)}", "red"))
+            self.message_queue.put(
+                ("status", f"❌ Error inicializando detector: {str(e)}", "red")
+            )
 
     def on_silence_preset_change(self, event=None):
         """Maneja el cambio de preset de silencio"""
@@ -1217,8 +1603,8 @@ class FluentAIGUI:
 
         if preset in SILENCE_DETECTION_PRESETS:
             config = SILENCE_DETECTION_PRESETS[preset]
-            self.min_silence_len.set(config['min_silence_len'])
-            self.silence_thresh.set(config['silence_thresh'])
+            self.min_silence_len.set(config["min_silence_len"])
+            self.silence_thresh.set(config["silence_thresh"])
 
             # Reinicializar detector si está activo
             if self.silence_detection_enabled.get():
@@ -1229,12 +1615,12 @@ class FluentAIGUI:
         if self.silence_detector:
             self.silence_detector.update_parameters(
                 min_silence_len=self.min_silence_len.get(),
-                silence_thresh=self.silence_thresh.get()
+                silence_thresh=self.silence_thresh.get(),
             )
 
     def update_mic_level_display(self):
         """Update the microphone level meter display"""
-        if not hasattr(self, 'mic_level_canvas'):
+        if not hasattr(self, "mic_level_canvas"):
             return
 
         # Clear the canvas
@@ -1246,20 +1632,22 @@ class FluentAIGUI:
         level_width = int(canvas_width * self.microphone_level)
 
         # Draw background
-        self.mic_level_canvas.create_rectangle(0, 0, canvas_width, canvas_height,
-                                              fill='#2c3e50', outline='#2c3e50')
+        self.mic_level_canvas.create_rectangle(
+            0, 0, canvas_width, canvas_height, fill="#2c3e50", outline="#2c3e50"
+        )
 
         # Draw level bar with color based on level
         if level_width > 0:
             if self.microphone_level < 0.3:
-                color = '#27ae60'  # Green for low levels
+                color = "#27ae60"  # Green for low levels
             elif self.microphone_level < 0.7:
-                color = '#f39c12'  # Orange for medium levels
+                color = "#f39c12"  # Orange for medium levels
             else:
-                color = '#e74c3c'  # Red for high levels
+                color = "#e74c3c"  # Red for high levels
 
-            self.mic_level_canvas.create_rectangle(0, 0, level_width, canvas_height,
-                                                  fill=color, outline=color)
+            self.mic_level_canvas.create_rectangle(
+                0, 0, level_width, canvas_height, fill=color, outline=color
+            )
 
         # Schedule next update
         self.root.after(100, self.update_mic_level_display)
@@ -1267,17 +1655,17 @@ class FluentAIGUI:
     def update_listening_indicator(self, state):
         """Update the listening/processing indicator"""
         if state == "listening":
-            self.listening_indicator.config(text="🎤 Listening...", fg='#27ae60')
+            self.listening_indicator.config(text="🎤 Listening...", fg="#27ae60")
             self.is_listening = True
             self.is_processing = False
         elif state == "processing":
-            self.listening_indicator.config(text="⚙️ Processing...", fg='#f39c12')
+            self.listening_indicator.config(text="⚙️ Processing...", fg="#f39c12")
             self.is_listening = False
             self.is_processing = True
         elif state == "silence_detected":
-            self.listening_indicator.config(text="🔇 Silence detected", fg='#e74c3c')
+            self.listening_indicator.config(text="🔇 Silence detected", fg="#e74c3c")
         else:
-            self.listening_indicator.config(text="", fg='white')
+            self.listening_indicator.config(text="", fg="white")
             self.is_listening = False
             self.is_processing = False
 
@@ -1285,29 +1673,38 @@ class FluentAIGUI:
         """Update the model status display"""
         if model_type == "whisper":
             if status == "loading":
-                self.model_status_label.config(text="📋 Whisper: Loading...", fg='#f39c12')
+                self.model_status_label.config(
+                    text="📋 Whisper: Loading...", fg="#f39c12"
+                )
             elif status == "loaded":
-                self.model_status_label.config(text="📋 Whisper: Ready", fg='#27ae60')
+                self.model_status_label.config(text="📋 Whisper: Ready", fg="#27ae60")
             elif status == "error":
-                self.model_status_label.config(text="📋 Whisper: Error", fg='#e74c3c')
+                self.model_status_label.config(text="📋 Whisper: Error", fg="#e74c3c")
         elif model_type == "translator":
             if status == "loading":
                 lang_pair = details if details else "model"
-                self.model_status_label.config(text=f"📋 Loading {lang_pair}...", fg='#f39c12')
+                self.model_status_label.config(
+                    text=f"📋 Loading {lang_pair}...", fg="#f39c12"
+                )
             elif status == "loaded":
                 lang_pair = details if details else "model"
-                self.model_status_label.config(text=f"📋 {lang_pair}: Ready", fg='#27ae60')
+                self.model_status_label.config(
+                    text=f"📋 {lang_pair}: Ready", fg="#27ae60"
+                )
             elif status == "error":
                 lang_pair = details if details else "model"
-                self.model_status_label.config(text=f"📋 {lang_pair}: Error", fg='#e74c3c')
+                self.model_status_label.config(
+                    text=f"📋 {lang_pair}: Error", fg="#e74c3c"
+                )
         elif model_type == "none":
-            self.model_status_label.config(text="📋 No model loaded", fg='#95a5a6')
+            self.model_status_label.config(text="📋 No model loaded", fg="#95a5a6")
 
     def simulate_microphone_level(self):
         """Simulate microphone level changes during recording"""
         if self.is_listening:
             # Simulate varying microphone levels during listening
             import random
+
             self.microphone_level = random.uniform(0.1, 0.8)
         elif self.is_processing:
             # Show steady low level during processing
@@ -1319,10 +1716,250 @@ class FluentAIGUI:
         # Schedule next update
         self.root.after(50, self.simulate_microphone_level)
 
+    # ── Meeting Mode ─────────────────────────────────────────────────────────
+
+    def _refresh_output_devices(self):
+        """Populate the output-device combobox via BlackHoleReproductionThread."""
+        try:
+            self._meeting_device_list = (
+                BlackHoleReproductionThread.list_output_devices()
+            )
+        except Exception:
+            self._meeting_device_list = []
+
+        names = [d["name"] for d in self._meeting_device_list]
+        self.meeting_device_combo["values"] = names
+
+        # Default: first BlackHole device, else first available
+        blackhole_names = [
+            d["name"] for d in self._meeting_device_list if d["is_blackhole"]
+        ]
+        if blackhole_names:
+            self.meeting_output_device_var.set(blackhole_names[0])
+        elif names:
+            self.meeting_output_device_var.set(names[0])
+
+    def _selected_output_device_index(self) -> int | None:
+        """Return sounddevice index for the currently selected output device."""
+        name = self.meeting_output_device_var.get()
+        for d in self._meeting_device_list:
+            if d["name"] == name:
+                return d["index"]
+        return None
+
+    def toggle_meeting_mode(self):
+        if self.meeting_mode_active:
+            self.stop_meeting_mode()
+        else:
+            self.start_meeting_mode()
+
+    def start_meeting_mode(self):
+        device_index = self._selected_output_device_index()
+        if device_index is None:
+            messagebox.showerror("Meeting Mode", "No output device selected.")
+            return
+
+        src_lang, dst_lang = self.get_source_and_target_from_direction()
+
+        self.meeting_asr_queue = queue.Queue()
+        self.meeting_synthesis_queue = queue.Queue()
+
+        self.meeting_capture_thread = AudioCaptureThread(
+            asr_queue=self.meeting_asr_queue,
+            silence_threshold_ms=200,
+        )
+        self.meeting_asr_thread = ASRTranslationSynthesisThread(
+            queue_in=self.meeting_asr_queue,
+            queue_out=self.meeting_synthesis_queue,
+            src_lang=src_lang,
+            dst_lang=dst_lang,
+            whisper_model="base",
+            callback=self._on_meeting_translation_result,
+        )
+        self.meeting_output_thread = BlackHoleReproductionThread(
+            output_device=device_index,
+            input_queue=self.meeting_synthesis_queue,
+        )
+
+        self.meeting_capture_thread.daemon = True
+        self.meeting_asr_thread.daemon = True
+
+        self.meeting_capture_thread.start()
+        self.meeting_asr_thread.start()
+        self.meeting_output_thread.start()
+
+        self.meeting_mode_active = True
+
+        # Update UI
+        self.meeting_toggle_btn.config(text="■ Stop Meeting Mode", bg="#e74c3c")
+        device_name = self.meeting_output_device_var.get()
+        self.meeting_status_text.set(
+            f"LIVE | {src_lang.upper()} → {dst_lang.upper()} to {device_name}"
+        )
+        self.meeting_status_label.config(fg="#27ae60")
+        self.record_btn.config(state=tk.DISABLED)
+        self.direction_combo.config(state="disabled")
+
+        # Show floating overlay
+        direction_text = f"{src_lang.upper()} → {dst_lang.upper()}"
+        self._meeting_overlay = MeetingOverlay(self.root, direction_text)
+
+    def stop_meeting_mode(self):
+        if self.meeting_capture_thread:
+            self.meeting_capture_thread.stop()
+            self.meeting_capture_thread = None
+        if self.meeting_asr_thread:
+            self.meeting_asr_thread.stop()
+            self.meeting_asr_thread = None
+        if self.meeting_output_thread:
+            self.meeting_output_thread.stop()
+            self.meeting_output_thread = None
+
+        self.meeting_asr_queue = None
+        self.meeting_synthesis_queue = None
+        self.meeting_mode_active = False
+
+        # Close overlay
+        if self._meeting_overlay:
+            self._meeting_overlay.close()
+            self._meeting_overlay = None
+
+        # Restore UI
+        self.meeting_toggle_btn.config(text="● Start Meeting Mode", bg="#27ae60")
+        self.meeting_status_text.set("Stopped")
+        self.meeting_status_label.config(fg="#95a5a6")
+        self.record_btn.config(state=tk.NORMAL)
+        self.direction_combo.config(state="readonly")
+
+    def _on_meeting_translation_result(self, original: str, translated: str):
+        """Called from ASR thread after each translation. Posts to message_queue."""
+        self.message_queue.put(("original_text", original))
+        self.message_queue.put(("translated_text", translated))
+        # Also update overlay if visible
+        if self._meeting_overlay:
+            self.root.after(
+                0,
+                lambda: self._meeting_overlay
+                and self._meeting_overlay.update_text(translated),
+            )
+
+    def _show_meeting_setup(self):
+        messagebox.showinfo(
+            "Meeting Mode Setup (one-time)",
+            "1. Install BlackHole 2ch:\n"
+            "   brew install blackhole-2ch\n"
+            "   (or download from existential.audio)\n\n"
+            "2. In your meeting app (Zoom / Meet / Teams):\n"
+            "   Settings → Audio → Microphone → BlackHole 2ch\n\n"
+            "3. In Fluent AI:\n"
+            "   - Select BlackHole 2ch as output\n"
+            "   - Choose your translation direction\n"
+            "   - Click Start Meeting Mode\n\n"
+            "4. Speak normally in the source language.\n"
+            "   Meeting participants hear your translation.\n\n"
+            "Note: Your real mic is captured by Fluent AI only.\n"
+            "      The meeting app sees BlackHole as your mic.",
+        )
+
+    def on_close(self):
+        if self.meeting_mode_active:
+            self.stop_meeting_mode()
+        self.root.destroy()
+
+
+class MeetingOverlay:
+    """Small always-on-top floating window shown during active Meeting Mode."""
+
+    def __init__(self, root: tk.Tk, direction_text: str):
+        self.win = tk.Toplevel(root)
+        self.win.overrideredirect(True)
+        self.win.attributes("-topmost", True)
+        self.win.attributes("-alpha", 0.92)
+        self.win.geometry("320x90+80+80")
+        self.win.configure(bg="#1a1a2e")
+
+        # Drag state
+        self._drag_x = 0
+        self._drag_y = 0
+
+        # ── Header row: drag handle + direction label ──
+        header = tk.Frame(self.win, bg="#1a1a2e")
+        header.pack(fill=tk.X, padx=8, pady=(6, 2))
+
+        drag_handle = tk.Label(
+            header,
+            text="≡",
+            font=("Arial", 12),
+            bg="#1a1a2e",
+            fg="#555577",
+            cursor="fleur",
+        )
+        drag_handle.pack(side=tk.LEFT)
+        drag_handle.bind("<ButtonPress-1>", self._on_drag_start)
+        drag_handle.bind("<B1-Motion>", self._on_drag_motion)
+
+        self._dot_label = tk.Label(
+            header, text="●", font=("Arial", 10), bg="#1a1a2e", fg="#27ae60"
+        )
+        self._dot_label.pack(side=tk.LEFT, padx=(6, 4))
+
+        tk.Label(
+            header,
+            text=direction_text,
+            font=("Arial", 10, "bold"),
+            bg="#1a1a2e",
+            fg="#ecf0f1",
+        ).pack(side=tk.LEFT)
+
+        # ── Translation text ──
+        self._text_label = tk.Label(
+            self.win,
+            text="Waiting for speech...",
+            font=("Arial", 10),
+            bg="#1a1a2e",
+            fg="#27ae60",
+            wraplength=300,
+            justify=tk.LEFT,
+            anchor=tk.W,
+        )
+        self._text_label.pack(fill=tk.X, padx=12, pady=(0, 6))
+
+        # Start pulsing dot animation
+        self._dot_visible = True
+        self._animate_dot()
+
+    def _animate_dot(self):
+        if not self.win.winfo_exists():
+            return
+        self._dot_visible = not self._dot_visible
+        color = "#27ae60" if self._dot_visible else "#1a1a2e"
+        self._dot_label.config(fg=color)
+        self.win.after(600, self._animate_dot)
+
+    def _on_drag_start(self, event):
+        self._drag_x = event.x_root - self.win.winfo_x()
+        self._drag_y = event.y_root - self.win.winfo_y()
+
+    def _on_drag_motion(self, event):
+        x = event.x_root - self._drag_x
+        y = event.y_root - self._drag_y
+        self.win.geometry(f"+{x}+{y}")
+
+    def update_text(self, text: str):
+        if self.win.winfo_exists():
+            display = text[:50] + "…" if len(text) > 50 else text
+            self._text_label.config(text=display)
+
+    def close(self):
+        if self.win.winfo_exists():
+            self.win.destroy()
+
+
 def main():
     root = tk.Tk()
     app = FluentAIGUI(root)
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()

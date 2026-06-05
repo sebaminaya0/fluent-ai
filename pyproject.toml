@@ -19,6 +19,7 @@ dependencies = [
     "soundfile",
     "sounddevice>=0.5.2",
     "duckdb>=0.9.0",
+    "pygame>=2.6.1",
 ]
 
 [project.optional-dependencies]

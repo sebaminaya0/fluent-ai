@@ -4,10 +4,8 @@ import time
 
 import pygame
 import speech_recognition as sr
-from gtts import gTTS
-from transformers.pipelines import pipeline
-
-# --- 1. CONFIGURACIÓN INICIAL ---
+from fluentai.tts_engine import synthesize_to_numpy
+import sounddevice as sd
 
 # Inicializar Pygame para el audio
 pygame.init()
@@ -158,32 +156,21 @@ def traducir_texto(texto_a_traducir, idioma_origen):
 
 def hablar_texto(texto_a_hablar, idioma='en'):
     """
-    Convierte el texto proporcionado a un archivo de audio y lo reproduce usando Pygame.
+    Sintetiza y reproduce texto con la TTS unificada, sin archivos temporales.
     """
     if not texto_a_hablar:
         return
 
     print("Generando audio...")
     try:
-        tts = gTTS(text=texto_a_hablar, lang=idioma, slow=False)
-        nombre_archivo = "traduccion.mp3"
-        tts.save(nombre_archivo)
-
-        print("Reproduciendo traducción...")
-        pygame.mixer.music.load(nombre_archivo)
-        pygame.mixer.music.play()
-
-        # Esperar a que la música termine de reproducirse
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
-
-        # Pygame puede bloquear el archivo, así que lo descargamos y esperamos un poco
-        pygame.mixer.music.unload()
-        time.sleep(0.5)
-
-        os.remove(nombre_archivo) # Limpiar el archivo de audio después de reproducirlo
+        samples = synthesize_to_numpy(texto_a_hablar, idioma, sample_rate=44100)
+        if samples.size == 0:
+            print("TTS no generó muestras.")
+            return
+        sd.play(samples, samplerate=44100)
+        sd.wait()
     except Exception as e:
-        print(f"Ocurrió un error al generar o reproducir el audio: {e}")
+        print(f"Ocurrió un error al reproducir el audio: {e}")
 
 
 # --- 3. BUCLE PRINCIPAL DE EJECUCIÓN ---
@@ -213,5 +200,3 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
         print("\n¡Adiós! Saliendo del programa.")
-    finally:
-        pygame.quit() # Limpiar pygame al salir
