@@ -12,6 +12,7 @@ import sounddevice as sd
 import speech_recognition as sr
 
 from audio_capture_thread import AudioCaptureThread
+from fluentai.app_controller import TranslationController
 from fluentai.asr_translation_synthesis_thread import ASRTranslationSynthesisThread
 from fluentai.audio_utils import apply_automatic_gain_control, normalize_audio_rms
 from fluentai.blackhole_reproduction_thread import BlackHoleReproductionThread
@@ -72,6 +73,9 @@ class FluentAIGUI:
             cache_dir="./model_cache", max_cache_size=10
         )
         self.model_loader.set_progress_callback(self._on_model_progress)
+
+        # Non-UI translation logic (model-backed translate + text/language helpers).
+        self.controller = TranslationController(self.model_loader)
 
         # Cache for current models
         self.current_whisper_model = None
@@ -674,7 +678,7 @@ class FluentAIGUI:
                 )
 
                 # Traducir
-                texto_traducido = self.translate_text(
+                texto_traducido = self.controller.translate(
                     texto_transcrito, idioma_origen, idioma_destino
                 )
 
@@ -864,7 +868,9 @@ class FluentAIGUI:
             print(f"- Texto a validar: '{texto_transcrito}'")
             print(f"- Idioma detectado: {idioma_detectado}")
 
-            es_valido = self.validate_text(texto_transcrito, idioma_detectado)
+            es_valido = self.controller.validate_text(
+                texto_transcrito, idioma_detectado
+            )
             print(f"- Resultado de validación: {es_valido}")
 
             if es_valido:
@@ -888,148 +894,6 @@ class FluentAIGUI:
             print("=== FIN DE PROCESO WHISPER (ERROR) ===\n")
             return None, None
 
-    def validate_text(self, texto, idioma_detectado):
-        """Valida que el texto sea válido para los idiomas soportados"""
-        print("\n=== VALIDANDO TEXTO ===")
-        print(f"Texto original: '{texto}'")
-        print(f"Texto después de strip: '{texto.strip()}'")
-        print(f"Longitud después de strip: {len(texto.strip())}")
-        print(f"Idioma detectado: {idioma_detectado}")
-
-        # Verificar longitud mínima
-        texto_limpio = texto.strip()
-        print("\n>>> VERIFICANDO LONGITUD MÍNIMA <<<")
-        print(f"Longitud del texto limpio: {len(texto_limpio)}")
-        print("Requisito mínimo: 2 caracteres")
-
-        if len(texto_limpio) < 2:
-            print("❌ FALLO: Texto muy corto (menos de 2 caracteres)")
-            print("=== FIN VALIDACIÓN (FALLIDO POR LONGITUD) ===\n")
-            return False
-        else:
-            print(f"✅ ÉXITO: Longitud suficiente ({len(texto_limpio)} caracteres)")
-
-        # Verificar caracteres latinos (ampliado para alemán y francés)
-        print("\n>>> VERIFICANDO CARACTERES LATINOS <<<")
-
-        caracteres_latinos = set(
-            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            "áéíóúüñÁÉÍÓÚÜÑ¿¡äöüÄÖÜßàâäçèêëïîôùûüÿÀÂÄÇÈÊËÏÎÔÙÛÜŸ"
-            ".,;:!?()[]{}\"'-_ "
-        )
-
-        caracteres_texto = set(texto)
-        caracteres_no_latinos = caracteres_texto - caracteres_latinos
-
-        print(f"Total de caracteres únicos en el texto: {len(caracteres_texto)}")
-        print(f"Caracteres únicos: {sorted(caracteres_texto)}")
-        print(f"Caracteres no latinos encontrados: {len(caracteres_no_latinos)}")
-
-        if len(caracteres_no_latinos) > 0:
-            print(f"Caracteres no latinos: {sorted(caracteres_no_latinos)}")
-            porcentaje_no_latinos = len(caracteres_no_latinos) / len(caracteres_texto)
-            print(f"Porcentaje de caracteres no latinos: {porcentaje_no_latinos:.2%}")
-            print("Umbral máximo permitido: 20%")
-
-            if porcentaje_no_latinos > 0.2:
-                print(
-                    f"❌ FALLO: Demasiados caracteres no latinos ({porcentaje_no_latinos:.2%} > 20%)"
-                )
-                print("=== FIN VALIDACIÓN (FALLIDO POR CARACTERES NO LATINOS) ===\n")
-                return False
-            else:
-                print(
-                    f"✅ ÉXITO: Porcentaje de caracteres no latinos aceptable ({porcentaje_no_latinos:.2%} <= 20%)"
-                )
-        else:
-            print("✅ ÉXITO: Todos los caracteres son latinos")
-
-        # Verificar idioma detectado (usando códigos ISO ampliado)
-        idiomas_validos = ["es", "en", "de", "fr"]
-        print(f"Idiomas válidos: {idiomas_validos}")
-        print(f"Idioma detectado: '{idioma_detectado}'")
-
-        if idioma_detectado in idiomas_validos:
-            print("✓ Idioma válido")
-            print("=== FIN VALIDACIÓN (EXITOSO) ===\n")
-            return True
-        else:
-            print(
-                f"FALLO: Idioma no válido ('{idioma_detectado}' no está en {idiomas_validos})"
-            )
-            print("=== FIN VALIDACIÓN (FALLIDO) ===\n")
-            return False
-
-    def determine_target_language(self, idioma_origen, target_selection):
-        """Determina el idioma de destino basado en la selección y restricciones"""
-        if target_selection == "auto":
-            # Lógica automática: español <-> inglés por defecto
-            if idioma_origen == "es":
-                return "en"
-            elif idioma_origen == "en":
-                return "es"
-            elif idioma_origen == "de":
-                return "es"  # Alemán por defecto a español
-            elif idioma_origen == "fr":
-                return "es"  # Francés por defecto a español
-            else:
-                return "en"  # Cualquier otro a inglés
-        else:
-            # Verificar si la combinación es válida
-            valid_combinations = {
-                "es": ["en", "de", "fr"],
-                "en": ["es", "de", "fr"],
-                "de": ["es", "en"],
-                "fr": ["es", "en"],
-            }
-
-            if (
-                idioma_origen in valid_combinations
-                and target_selection in valid_combinations[idioma_origen]
-            ):
-                return target_selection
-            else:
-                return None
-
-    def translate_text(self, texto, idioma_origen, idioma_destino):
-        """Traduce el texto usando el modelo apropiado"""
-        try:
-            print("\n=== TRADUCIENDO ===")
-            print(f"Texto: '{texto}'")
-            print(f"Idioma origen: {idioma_origen}")
-            print(f"Idioma destino: {idioma_destino}")
-
-            # Obtener el modelo traductor usando LazyModelLoader
-            translator = self.model_loader.get_model(idioma_origen, idioma_destino)
-
-            if translator:
-                # Call the translator pipeline with clean parameters
-                try:
-                    resultado = translator(texto, max_length=512, do_sample=False)
-                    translation = resultado[0]["translation_text"]
-                    print(f"Traducción: '{translation}'")
-                    print("=== FIN TRADUCCIÓN (EXITOSO) ===\n")
-                    return translation
-                except Exception as pipeline_error:
-                    print(f"Pipeline error: {pipeline_error}")
-                    # Try a simpler call without extra parameters
-                    resultado = translator(texto)
-                    translation = resultado[0]["translation_text"]
-                    print(f"Traducción: '{translation}'")
-                    print("=== FIN TRADUCCIÓN (EXITOSO) ===\n")
-                    return translation
-            else:
-                print(
-                    f"ERROR: No hay traductor para {idioma_origen} → {idioma_destino}"
-                )
-                print("=== FIN TRADUCCIÓN (FALLIDO) ===\n")
-                return None
-
-        except Exception as e:
-            print(f"Error en traducción: {e}")
-            print("=== FIN TRADUCCIÓN (ERROR) ===\n")
-            return None
-
     def play_translation(self):
         """Reproduce la traducción"""
         if not self.current_translation:
@@ -1047,7 +911,7 @@ class FluentAIGUI:
         if not self.current_translation:
             return
         try:
-            lang = self.detect_language_for_tts(self.current_translation)
+            lang = self.controller.detect_tts_language(self.current_translation)
             samples = synthesize_to_numpy(
                 self.current_translation, lang, sample_rate=44100
             )
@@ -1061,131 +925,6 @@ class FluentAIGUI:
             )
         except Exception as e:
             self.message_queue.put(("status", f"❌ Error reproduciendo: {e}", "red"))
-
-    def detect_language_for_tts(self, texto):
-        """Detecta el idioma del texto para TTS"""
-        texto_lower = texto.lower()
-
-        # Palabras y caracteres característicos por idioma
-        spanish_indicators = {
-            "words": [
-                "el",
-                "la",
-                "de",
-                "que",
-                "y",
-                "es",
-                "en",
-                "un",
-                "una",
-                "con",
-                "por",
-                "para",
-                "hola",
-                "gracias",
-                "sí",
-                "no",
-                "dónde",
-                "cuándo",
-                "cómo",
-                "qué",
-            ],
-            "chars": ["ñ", "á", "é", "í", "ó", "ú", "¿", "¡"],
-        }
-
-        german_indicators = {
-            "words": [
-                "der",
-                "die",
-                "das",
-                "und",
-                "ich",
-                "sie",
-                "mit",
-                "für",
-                "auf",
-                "von",
-                "ist",
-                "war",
-                "haben",
-                "werden",
-                "sein",
-                "nicht",
-                "auch",
-                "aber",
-                "oder",
-                "wie",
-            ],
-            "chars": ["ä", "ö", "ü", "ß"],
-        }
-
-        french_indicators = {
-            "words": [
-                "le",
-                "la",
-                "les",
-                "et",
-                "de",
-                "je",
-                "tu",
-                "il",
-                "elle",
-                "nous",
-                "vous",
-                "ils",
-                "elles",
-                "avec",
-                "pour",
-                "sur",
-                "dans",
-                "mais",
-                "ou",
-                "où",
-                "comment",
-            ],
-            "chars": [
-                "à",
-                "â",
-                "ä",
-                "ç",
-                "è",
-                "ê",
-                "ë",
-                "ï",
-                "î",
-                "ô",
-                "ù",
-                "û",
-                "ü",
-                "ÿ",
-            ],
-        }
-
-        # Calcular puntuaciones para cada idioma
-        spanish_score = sum(
-            1 for word in spanish_indicators["words"] if word in texto_lower
-        ) + sum(1 for char in spanish_indicators["chars"] if char in texto_lower)
-
-        german_score = sum(
-            1 for word in german_indicators["words"] if word in texto_lower
-        ) + sum(1 for char in german_indicators["chars"] if char in texto_lower)
-
-        french_score = sum(
-            1 for word in french_indicators["words"] if word in texto_lower
-        ) + sum(1 for char in french_indicators["chars"] if char in texto_lower)
-
-        # Determinar idioma basado en la puntuación más alta
-        scores = {"es": spanish_score, "de": german_score, "fr": french_score}
-        max_score = max(scores.values())
-
-        if max_score == 0:
-            return "en"  # Por defecto inglés si no hay indicadores
-
-        for lang, score in scores.items():
-            if score == max_score:
-                return lang
-
-        return "en"  # Fallback a inglés
 
     def check_message_queue(self):
         """Verifica la cola de mensajes y actualiza la UI"""
