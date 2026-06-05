@@ -67,7 +67,16 @@ class MeetingASRThread(threading.Thread):
             try:
                 start = time.time()
                 audio = self._decode(segment["wav_data"])
-                result = self._whisper.transcribe(audio, language=self.src_lang)
+                result = self._whisper.transcribe(
+                    audio,
+                    language=self.src_lang,
+                    # Anti-hallucination: don't carry prior context (a big source
+                    # of looping/repeats) and drop near-silent segments.
+                    condition_on_previous_text=False,
+                    temperature=0.0,
+                    no_speech_threshold=0.6,
+                    compression_ratio_threshold=2.4,
+                )
                 original = result["text"].strip()
                 if not original:
                     continue
@@ -126,12 +135,18 @@ class MeetingSpeakThread(threading.Thread):
         device_name: str | None,
         dst_lang: str,
         callback=None,
+        mute_event: threading.Event | None = None,
+        echo_cooldown_s: float = 0.4,
     ):
         super().__init__(daemon=True)
         self.speak_queue = speak_queue
         self.device_name = device_name
         self.dst_lang = dst_lang
         self.callback = callback
+        # Held set while speaking so the capture thread ignores the mic and our
+        # TTS isn't recaptured. Cleared after a short cooldown for the echo tail.
+        self.mute_event = mute_event
+        self.echo_cooldown_s = echo_cooldown_s
         self.stop_event = threading.Event()
 
     def run(self):
@@ -149,16 +164,25 @@ class MeetingSpeakThread(threading.Thread):
                         item.get("latency_ms"),
                     )
 
-                # Blocking so utterances don't overlap; the ASR stage keeps
-                # working on the next segment in parallel meanwhile.
-                ok = speak_to_device(
-                    item["translated"],
-                    self.dst_lang,
-                    device_name=self.device_name,
-                    blocking=True,
-                )
-                if not ok:
-                    self._fallback_play(item["translated"])
+                # Mute the mic for the whole playback (+ a short echo-tail
+                # cooldown) so we never recapture our own output.
+                if self.mute_event is not None:
+                    self.mute_event.set()
+                try:
+                    # Blocking so utterances don't overlap; the ASR stage keeps
+                    # working on the next segment in parallel meanwhile.
+                    ok = speak_to_device(
+                        item["translated"],
+                        self.dst_lang,
+                        device_name=self.device_name,
+                        blocking=True,
+                    )
+                    if not ok:
+                        self._fallback_play(item["translated"])
+                finally:
+                    if self.mute_event is not None:
+                        time.sleep(self.echo_cooldown_s)
+                        self.mute_event.clear()
             except Exception as e:
                 logger.error("MeetingSpeakThread error: %s", e)
 

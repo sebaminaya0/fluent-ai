@@ -153,6 +153,12 @@ class VADProcessor:
             f"Silence threshold: {silence_threshold_ms}ms ({self.silence_frames_threshold} frames)"
         )
 
+    def reset(self):
+        """Clear detection state (used to drop an in-progress utterance)."""
+        self.consecutive_voice_frames = 0
+        self.consecutive_silence_frames = 0
+        self.is_recording = False
+
     def process_frame(self, frame: np.ndarray) -> dict[str, Any]:
         """
         Process a single audio frame for VAD.
@@ -258,11 +264,14 @@ class AudioCaptureThread:
         silence_threshold_ms: int = 400,
         buffer_duration: float = 1.0,
         max_blocking_ms: int = 50,
+        mute_event: threading.Event | None = None,
     ):
         """
         Initialize audio capture thread.
 
         Args:
+            mute_event: When set, the mic is ignored (half-duplex). Used to
+                avoid recapturing our own TTS output during playback.
             asr_queue: Queue to send captured audio segments for ASR
             sample_rate: Audio sample rate
             channels: Number of audio channels
@@ -280,6 +289,7 @@ class AudioCaptureThread:
         self.device = device
         self.chunk_size = chunk_size
         self.max_blocking_ms = max_blocking_ms
+        self.mute_event = mute_event
 
         # Initialize circular buffer
         self.buffer = CircularAudioBuffer(sample_rate, buffer_duration)
@@ -355,6 +365,15 @@ class AudioCaptureThread:
             logger.warning(f"Audio callback status: {status}")
 
         try:
+            # Half-duplex: while our own translation is playing, ignore the mic
+            # so the TTS output isn't recaptured and re-translated (feedback
+            # loop). Drop any in-progress recording and reset VAD state.
+            if self.mute_event is not None and self.mute_event.is_set():
+                if self.current_recording is not None:
+                    self.current_recording = None
+                self.vad.reset()
+                return
+
             # Convert to int16 and flatten if multichannel
             if self.channels == 1:
                 audio_data = (indata[:, 0] * 32767).astype(np.int16)

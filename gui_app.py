@@ -1341,10 +1341,14 @@ class FluentAIGUI:
         # ASR stage works on the next utterance while the current one plays.
         self.meeting_asr_queue = queue.Queue()
         self.meeting_speak_queue = queue.Queue()
+        # Shared half-duplex gate: held while the translation plays so the mic
+        # ignores our own TTS output (prevents the feedback/echo loop).
+        self.meeting_mute_event = threading.Event()
 
         self.meeting_capture_thread = AudioCaptureThread(
             asr_queue=self.meeting_asr_queue,
             silence_threshold_ms=200,
+            mute_event=self.meeting_mute_event,
         )
         self.meeting_asr_thread = MeetingASRThread(
             asr_queue=self.meeting_asr_queue,
@@ -1359,6 +1363,7 @@ class FluentAIGUI:
             device_name=device_name,
             dst_lang=dst_lang,
             callback=self._on_meeting_translation_result,
+            mute_event=self.meeting_mute_event,
         )
 
         self.meeting_capture_thread.daemon = True

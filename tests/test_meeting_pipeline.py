@@ -4,6 +4,7 @@ import io
 import os
 import queue
 import sys
+import threading
 import time
 
 import numpy as np
@@ -60,6 +61,36 @@ def test_speak_thread_streams_translated_text(monkeypatch):
 
     assert calls == [("hola", "es", "BlackHole 2ch")]
     assert seen == [("hello", "hola", None)]
+
+
+def test_speak_thread_mutes_mic_during_playback(monkeypatch):
+    # The half-duplex gate must be held while speaking and released afterward,
+    # so the capture thread ignores our own TTS output (no feedback loop).
+    mute = threading.Event()
+    observed = {}
+
+    def fake_speak(text, lang, device_name=None, blocking=True):
+        observed["muted_while_speaking"] = mute.is_set()
+        return True
+
+    monkeypatch.setattr(meeting_pipeline, "speak_to_device", fake_speak)
+
+    speak_q = queue.Queue()
+    thread = MeetingSpeakThread(
+        speak_q, None, "es", mute_event=mute, echo_cooldown_s=0.0
+    )
+    thread.start()
+    speak_q.put({"original": "hi", "translated": "hola"})
+
+    deadline = time.time() + 3
+    while "muted_while_speaking" not in observed and time.time() < deadline:
+        time.sleep(0.02)
+    time.sleep(0.1)  # let the cooldown clear the gate
+    thread.stop()
+    thread.join(timeout=2)
+
+    assert observed["muted_while_speaking"] is True
+    assert not mute.is_set()  # released after playback
 
 
 @pytest.mark.integration
