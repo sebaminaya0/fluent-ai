@@ -184,9 +184,6 @@ class LazyModelLoader:
             # Check if model has underlying PyTorch model
             if hasattr(model, "model"):
                 logger.info(f"Underlying model type: {type(model.model)}")
-                logger.info(
-                    f"Model parameters on device: {next(model.model.parameters()).device if hasattr(model.model, 'parameters') else 'no parameters'}"
-                )
 
             # Cache the model (with LRU eviction if needed)
             self._cache_translation_model(model_key, model)

@@ -36,6 +36,7 @@ dev = [
     "mypy",
     "black",
     "isort",
+    "psutil",
 ]
 
 [tool.setuptools.packages.find]

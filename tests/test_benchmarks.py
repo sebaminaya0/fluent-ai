@@ -204,9 +204,10 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
 
         # Mock pipeline to return lightweight models
         def mock_pipeline(*args, **kwargs):
-            # Simulate memory usage with a mock model
+            # Simulate per-model memory with a fixed-size payload. Measured via
+            # tracemalloc below, so the exact size only needs to dominate the
+            # loader's small fixed overhead.
             mock_model = Mock()
-            # Add some data to simulate memory usage
             mock_model._fake_data = b"x" * (1024 * 1024)  # 1MB of fake data
             return mock_model
 
@@ -214,38 +215,42 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             # Test with 1, 5, and 20 language pairs
             test_counts = [1, 5, 20]
 
+            import gc
+            import tracemalloc
+
             for pair_count in test_counts:
                 print(f"Testing with {pair_count} language pairs...")
 
-                start_memory = self.memory_profiler.get_memory_usage()
+                # Measure Python allocation growth with tracemalloc. Process RSS
+                # deltas are unreliable here: in a warm process freed pages get
+                # reused, so loading models often shows a 0 MB RSS change.
+                gc.collect()
+                tracemalloc.start()
                 loader = LazyModelLoader(cache_dir=self.test_cache_dir)
 
                 supported_pairs = loader.get_supported_language_pairs()
                 pairs_to_load = supported_pairs[:pair_count]
 
-                # Load models and measure memory
                 load_start_time = time.time()
                 for src_lang, tgt_lang in pairs_to_load:
                     loader.get_model(src_lang, tgt_lang)
                 load_end_time = time.time()
 
-                end_memory = self.memory_profiler.get_memory_usage()
+                current_bytes, _peak_bytes = tracemalloc.get_traced_memory()
+                tracemalloc.stop()
+                memory_mb = current_bytes / (1024 * 1024)
 
                 result = {
                     "language_pairs": pair_count,
-                    "memory_usage_mb": end_memory - start_memory,
+                    "memory_usage_mb": memory_mb,
                     "load_time_seconds": load_end_time - load_start_time,
-                    "memory_per_pair_mb": (end_memory - start_memory) / pair_count
+                    "memory_per_pair_mb": memory_mb / pair_count
                     if pair_count > 0
                     else 0,
                 }
 
                 results[f"{pair_count}_pairs"] = result
                 loader.shutdown()
-
-                # Force garbage collection
-                import gc
-
                 gc.collect()
 
         self.benchmark_results.add_result("memory_footprint_multiple_pairs", results)
@@ -351,14 +356,15 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             # Create loader with small cache size
             loader = LazyModelLoader(cache_dir=self.test_cache_dir, max_cache_size=3)
 
-            # Load models up to cache limit
-            pairs = loader.get_supported_language_pairs()[:3]
-            for src_lang, tgt_lang in pairs:
+            # Load models up to cache limit (cache size is 3), keeping a 4th
+            # pair aside to trigger eviction.
+            pairs = loader.get_supported_language_pairs()[:4]
+            for src_lang, tgt_lang in pairs[:3]:
                 loader.get_model(src_lang, tgt_lang)
 
             # Measure eviction performance
             start_time = time.time()
-            # This should trigger eviction
+            # Loading the 4th distinct pair should trigger eviction.
             loader.get_model(pairs[3][0], pairs[3][1])
             eviction_time = time.time() - start_time
 

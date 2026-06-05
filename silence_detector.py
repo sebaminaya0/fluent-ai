@@ -162,11 +162,26 @@ class SilenceDetector:
                 self._init_detection_method()
 
     def is_silence_webrtcvad(self, audio_data: bytes) -> bool:
-        """Detect silence using WebRTC VAD."""
+        """Detect silence using WebRTC VAD.
+
+        WebRTC VAD only accepts exact 10/20/30 ms frames, but callers stream
+        arbitrary-length chunks. Split the input into valid frames and treat the
+        chunk as speech if *any* frame contains speech (i.e. it is silent only
+        when every frame is silent). Trailing bytes that don't fill a frame are
+        ignored.
+        """
         try:
-            # WebRTC VAD expects 16-bit PCM audio
-            is_speech = self.vad.is_speech(audio_data, self.sample_rate)
-            return not is_speech
+            # Bytes per VAD frame: samples * 2 (16-bit mono PCM).
+            frame_bytes = int(self.sample_rate * self.frame_duration / 1000) * 2
+            if frame_bytes <= 0 or len(audio_data) < frame_bytes:
+                # Not enough data to form a single VAD frame; treat as silence.
+                return True
+
+            for start in range(0, len(audio_data) - frame_bytes + 1, frame_bytes):
+                frame = audio_data[start : start + frame_bytes]
+                if self.vad.is_speech(frame, self.sample_rate):
+                    return False  # any speech frame => not silence
+            return True
         except Exception as e:
             logging.error(f"WebRTC VAD error: {e}")
             return False

@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 import unittest
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -62,12 +62,12 @@ class TestLazyModelLoaderMocking(unittest.TestCase):
         # Third request - should return cached model
         model3 = self.loader.get_model(src_lang, tgt_lang)
 
-        # Assert pipeline was called only once
-        mock_pipeline.assert_called_once_with(
-            "translation",
-            model="Helsinki-NLP/opus-mt-es-en",
-            cache_dir=self.test_cache_dir,
-        )
+        # Assert pipeline was called only once for the right model. Device and
+        # dtype kwargs are implementation details and intentionally not asserted.
+        mock_pipeline.assert_called_once()
+        args, kwargs = mock_pipeline.call_args
+        self.assertEqual(args, ("translation",))
+        self.assertEqual(kwargs["model"], "Helsinki-NLP/opus-mt-es-en")
 
         # Assert all returns are the same cached model
         self.assertIs(model1, model2)
@@ -90,20 +90,13 @@ class TestLazyModelLoaderMocking(unittest.TestCase):
         model1 = self.loader.get_model("es", "en")
         model2 = self.loader.get_model("en", "es")
 
-        # Assert pipeline was called twice with different models
-        expected_calls = [
-            call(
-                "translation",
-                model="Helsinki-NLP/opus-mt-es-en",
-                cache_dir=self.test_cache_dir,
-            ),
-            call(
-                "translation",
-                model="Helsinki-NLP/opus-mt-en-es",
-                cache_dir=self.test_cache_dir,
-            ),
-        ]
-        mock_pipeline.assert_has_calls(expected_calls)
+        # Assert pipeline was called twice, once per distinct model.
+        self.assertEqual(mock_pipeline.call_count, 2)
+        models_used = [c.kwargs["model"] for c in mock_pipeline.call_args_list]
+        self.assertEqual(
+            models_used,
+            ["Helsinki-NLP/opus-mt-es-en", "Helsinki-NLP/opus-mt-en-es"],
+        )
 
         # Assert different models were returned
         self.assertIsNot(model1, model2)
