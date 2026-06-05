@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -115,6 +116,7 @@ class TestASRRoundTrip(unittest.TestCase):
 
         return wav_buffer.getvalue()
 
+    @pytest.mark.integration
     def test_spanish_to_english(self):
         """Test Spanish to English ASR round-trip."""
         # Create input and output queues
@@ -168,6 +170,7 @@ class TestASRRoundTrip(unittest.TestCase):
             thread.stop()
             thread.join(timeout=5)
 
+    @pytest.mark.integration
     def test_english_passthrough(self):
         """Test English to English passthrough (no translation)."""
         # Create input and output queues
