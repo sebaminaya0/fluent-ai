@@ -265,6 +265,7 @@ class AudioCaptureThread:
         buffer_duration: float = 1.0,
         max_blocking_ms: int = 50,
         mute_event: threading.Event | None = None,
+        partial_interval_ms: int | None = None,
     ):
         """
         Initialize audio capture thread.
@@ -306,6 +307,18 @@ class AudioCaptureThread:
         # Recording state
         self.current_recording = None
         self.recording_start_time = None
+
+        # Streaming (partial) emission. When enabled, growing snapshots of the
+        # in-progress recording are emitted during an utterance so a streaming
+        # transcriber can produce live captions. Opt-in: off when None.
+        self.partial_interval_ms = partial_interval_ms
+        self.partial_interval_samples = (
+            int(sample_rate * partial_interval_ms / 1000)
+            if partial_interval_ms
+            else None
+        )
+        self.utterance_id = 0
+        self._last_partial_len = 0
 
         # Thread control
         self.is_running = False
@@ -415,9 +428,40 @@ class AudioCaptureThread:
                 if self.current_recording is not None:
                     self.current_recording.extend(frame)
 
+                    # Emit a growing partial snapshot for streaming captions.
+                    if self.partial_interval_samples and (
+                        len(self.current_recording) - self._last_partial_len
+                        >= self.partial_interval_samples
+                    ):
+                        self._emit_partial()
+                        self._last_partial_len = len(self.current_recording)
+
         except Exception as e:
             logger.error(f"Error in audio callback: {e}")
             self.stats["processing_errors"] += 1
+
+    def _emit_partial(self):
+        """Emit an in-progress snapshot (numpy float32) for streaming ASR.
+
+        Kept light (no WAV encoding) since this runs on the real-time audio
+        callback; dropped if the consumer queue is full.
+        """
+        try:
+            audio = np.array(self.current_recording, dtype=np.float32) / 32767.0
+            self.asr_queue.put_nowait(
+                {
+                    "audio": audio,
+                    "utterance_id": self.utterance_id,
+                    "is_final": False,
+                    "sample_rate": self.sample_rate,
+                    "duration": len(audio) / self.sample_rate,
+                    "samples": len(audio),
+                }
+            )
+        except queue.Full:
+            pass  # consumer is behind; drop this partial
+        except Exception as e:
+            logger.error(f"Partial emit error: {e}")
 
     def _start_recording(self):
         """Start a new recording session."""
@@ -430,6 +474,8 @@ class AudioCaptureThread:
         # Initialize recording with pre-voice samples
         self.current_recording = list(pre_voice_samples)
         self.recording_start_time = time.time()
+        self.utterance_id += 1
+        self._last_partial_len = 0
 
         logger.info(
             f"Started recording with {len(pre_voice_samples)} pre-voice samples"
@@ -452,6 +498,9 @@ class AudioCaptureThread:
                 # Create audio segment info
                 recording_info = {
                     "wav_data": wav_bytes,
+                    "audio": recording_array.astype(np.float32) / 32767.0,
+                    "utterance_id": self.utterance_id,
+                    "is_final": True,
                     "sample_rate": self.sample_rate,
                     "channels": self.channels,
                     "duration": len(recording_array) / self.sample_rate,
