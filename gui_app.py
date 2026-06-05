@@ -1347,7 +1347,9 @@ class FluentAIGUI:
 
         self.meeting_capture_thread = AudioCaptureThread(
             asr_queue=self.meeting_asr_queue,
-            silence_threshold_ms=200,
+            # Wait for a real sentence-end pause (not every 200ms gap) so
+            # utterances stay whole -> better transcription and translation.
+            silence_threshold_ms=700,
             mute_event=self.meeting_mute_event,
         )
         self.meeting_asr_thread = MeetingASRThread(
@@ -1356,7 +1358,9 @@ class FluentAIGUI:
             controller=self.controller,
             src_lang=src_lang,
             dst_lang=dst_lang,
-            whisper_model="base",
+            # 'small' is markedly more accurate (and punctuates) vs 'base',
+            # still ~0.5s on Apple Silicon.
+            whisper_model="small",
         )
         self.meeting_speak_thread = MeetingSpeakThread(
             speak_queue=self.meeting_speak_queue,
