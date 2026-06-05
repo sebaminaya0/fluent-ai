@@ -114,9 +114,10 @@ uv run main_whisper.py
 
 ### 🎙️ **Real-Time Translation System**
 
-**Live Monitor with Database Logging**:
+**Live Monitor** (add `--db` to log everything to DuckDB):
 ```bash
-uv run live_monitor_with_db.py
+uv run live_monitor.py          # dashboard only
+uv run live_monitor.py --db     # dashboard + database logging
 ```
 
 **BlackHole Audio Setup** (for meeting integration):
@@ -232,7 +233,7 @@ chunk_size = 1024  # Optimal chunk size
 fluent-ai/
 ├── gui_app.py                    # Main GUI application with Tkinter (Recommended)
 ├── main_whisper.py               # Command-line version with OpenAI Whisper
-├── live_monitor_with_db.py       # Real-time translation monitor with database logging
+├── live_monitor.py               # Real-time translation monitor (--db enables DuckDB logging)
 ├── init_database.py              # Database initialization and testing
 ├── view_database.py              # Database viewer and analytics
 ├── audio_capture_thread.py       # Audio capture thread with VAD

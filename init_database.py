@@ -194,7 +194,7 @@ if __name__ == "__main__":
 
     print("\n✅ Database initialization complete!")
     print("\n💡 Next steps:")
-    print("   1. Run: uv run live_monitor_with_db.py")
+    print("   1. Run: uv run live_monitor.py --db")
     print("   2. Speak in Spanish to test the system")
     print("   3. Check the database logs")
     print("\n🔍 To view the database:")

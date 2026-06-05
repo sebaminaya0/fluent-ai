@@ -57,7 +57,7 @@ The FluentAI real-time translation pipeline now includes comprehensive database 
 ### Scripts
 - `init_database.py` - Initialize database and run tests
 - `view_database.py` - View and analyze database contents
-- `live_monitor_with_db.py` - Enhanced live monitor with database logging
+- `live_monitor.py --db` - Live monitor with database logging enabled
 
 ### Updated Threads
 - `audio_capture_thread.py` - Now logs audio capture operations
@@ -73,7 +73,7 @@ uv run init_database.py
 
 ### 2. Run Live Monitor with Database Logging
 ```bash
-uv run live_monitor_with_db.py
+uv run live_monitor.py --db
 ```
 
 ### 3. View Database Contents

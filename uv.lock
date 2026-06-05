@@ -190,7 +190,7 @@ wheels = [
 [[package]]
 name = "fluent-ai"
 version = "0.2.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "duckdb" },
     { name = "gtts" },

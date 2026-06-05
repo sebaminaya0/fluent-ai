@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
 Live monitoring dashboard for FluentAI real-time translation pipeline
-Shows queue states, processing activity, and audio flow in real-time
+
+Shows queue states, processing activity, and audio flow in real-time. Pass
+``use_db=True`` (CLI: ``--db``) to also log all pipeline activity to the DuckDB
+database for later analysis.
 """
 
+import argparse
 import os
 import queue
 import threading
@@ -16,8 +20,20 @@ from fluentai.blackhole_reproduction_thread import BlackHoleReproductionThread
 
 
 class LiveMonitor:
-    def __init__(self):
+    def __init__(self, use_db=False):
         self.running = True
+        self.use_db = use_db
+
+        # The DuckDB logger is only imported/used when DB logging is enabled, so
+        # the plain monitor never touches the database file.
+        self.session_id = None
+        self.db_logger = None
+        if self.use_db:
+            from fluentai.database_logger import db_logger, generate_session_id
+
+            self.db_logger = db_logger
+            self.session_id = generate_session_id()
+
         self.asr_queue = queue.Queue(maxsize=10)
         self.output_queue = queue.Queue(maxsize=10)
 
@@ -68,6 +84,8 @@ class LiveMonitor:
                 voice_threshold_ms=200,
                 silence_threshold_ms=400,
             )
+            if self.use_db:
+                self.capture_thread.set_session_id(self.session_id)
             self.capture_thread.start()
 
             # ASR + Translation + Synthesis thread
@@ -78,6 +96,8 @@ class LiveMonitor:
                 dst_lang="en",
                 whisper_model="base",
             )
+            if self.use_db:
+                self.asr_thread.set_session_id(self.session_id)
             self.asr_thread.start()
 
             # BlackHole reproduction thread
@@ -86,6 +106,8 @@ class LiveMonitor:
                 input_queue=self.output_queue,
                 sample_rate=44100,
             )
+            if self.use_db:
+                self.blackhole_thread.set_session_id(self.session_id)
             self.blackhole_thread.start()
 
             self.last_activity = "All threads started successfully"
@@ -117,9 +139,14 @@ class LiveMonitor:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         print("=" * 80)
-        print("🎙️  FluentAI Real-time Translation - Live Monitor")
+        title = "🎙️  FluentAI Real-time Translation - Live Monitor"
+        if self.use_db:
+            title += " with Database"
+        print(title)
         print("=" * 80)
         print(f"⏰ Time: {now}")
+        if self.use_db:
+            print(f"🗄️  Session ID: {self.session_id}")
         print(f"📊 Status: {self.last_activity}")
         print()
 
@@ -171,6 +198,21 @@ class LiveMonitor:
         print(f"🌍 Translation: {self.last_translation or 'Waiting for speech...'}")
         print()
 
+        # Database information
+        if self.use_db:
+            print("🗄️  DATABASE LOGGING:")
+            print("-" * 40)
+            recent_logs = self.db_logger.get_session_logs(self.session_id)
+            if recent_logs:
+                print(f"📈 Total logs this session: {len(recent_logs)}")
+                for log in recent_logs[-3:]:
+                    timestamp = log["timestamp"]
+                    thread_name = {1: "Audio", 2: "ASR", 3: "Output"}[log["thread_id"]]
+                    print(f"   {timestamp}: {thread_name} - {log['message'][:50]}...")
+            else:
+                print("📈 No logs recorded yet")
+            print()
+
         # Instructions
         print("💡 INSTRUCTIONS:")
         print("-" * 40)
@@ -178,6 +220,8 @@ class LiveMonitor:
         print("• Watch the queue bars fill up as audio is processed")
         print("• Audio will play through BlackHole device")
         print("• Press Ctrl+C to stop")
+        if self.use_db:
+            print("• All operations are logged to DuckDB database")
         print()
 
         # Real-time queue flow animation
@@ -250,7 +294,10 @@ class LiveMonitor:
 
     def run(self):
         """Run the live monitor"""
-        print("🚀 Starting FluentAI Live Monitor...")
+        if self.use_db:
+            print("🚀 Starting FluentAI Live Monitor with Database Logging...")
+        else:
+            print("🚀 Starting FluentAI Live Monitor...")
         print("Loading models and initializing threads...")
 
         if not self.start_threads():
@@ -273,7 +320,76 @@ class LiveMonitor:
             self.clear_screen()
             print("✅ Live monitor stopped")
 
+            if self.use_db:
+                self._print_database_summary()
+
+    def log_complete_translation(self, input_text, translated_text):
+        """Log a complete translation to the database (no-op without --db)."""
+        if not self.use_db:
+            return
+        try:
+            self.db_logger.log_complete_translation(
+                session_id=self.session_id,
+                input_language="es",
+                output_language="en",
+                input_channel="MacBook Pro Microphone",
+                output_channel="BlackHole 2ch",
+                full_message_input=input_text,
+                full_message_translated=translated_text,
+                total_segments_audio=self.audio_segments_captured,
+                total_segments_asr=self.audio_segments_processed,
+                total_segments_output=self.audio_segments_played,
+                model_used="whisper-base",
+                total_latency_ms=0,  # Would be calculated from actual timings
+                metadata={
+                    "source_language": "es",
+                    "target_language": "en",
+                    "session_start": datetime.now().isoformat(),
+                },
+            )
+        except Exception as e:
+            print(f"Error logging complete translation: {e}")
+
+    def _print_database_summary(self):
+        """Print a summary of what was logged to the database this session."""
+        print("\n📊 Final Database Summary:")
+        print("-" * 40)
+        session_logs = self.db_logger.get_session_logs(self.session_id)
+        if session_logs:
+            print(f"Total logs recorded: {len(session_logs)}")
+            audio_logs = [log for log in session_logs if log["thread_id"] == 1]
+            asr_logs = [log for log in session_logs if log["thread_id"] == 2]
+            output_logs = [log for log in session_logs if log["thread_id"] == 3]
+
+            print(f"Audio capture logs: {len(audio_logs)}")
+            print(f"ASR/Translation logs: {len(asr_logs)}")
+            print(f"Audio output logs: {len(output_logs)}")
+
+            error_logs = [log for log in session_logs if log["errors"]]
+            if error_logs:
+                print(f"Errors encountered: {len(error_logs)}")
+                for log in error_logs[-3:]:
+                    print(f"   {log['timestamp']}: {log['errors']}")
+
+        print(f"\nSession ID: {self.session_id}")
+        print("Database file: translation_logs.duckdb")
+        print("Use the database viewer to analyze detailed logs.")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="FluentAI real-time translation live monitor."
+    )
+    parser.add_argument(
+        "--db",
+        action="store_true",
+        help="Log all pipeline activity to the DuckDB database.",
+    )
+    args = parser.parse_args()
+
+    monitor = LiveMonitor(use_db=args.db)
+    monitor.run()
+
 
 if __name__ == "__main__":
-    monitor = LiveMonitor()
-    monitor.run()
+    main()

@@ -21,8 +21,7 @@ This file provides guidance for AI assistants (Claude, Copilot, etc.) working on
 fluent-ai/
 ├── gui_app.py                  # Main GUI entry point (Tkinter, ~1,745 lines — God class, slated for decomposition)
 ├── main_whisper.py             # CLI entry point — Whisper ASR (~780 lines)
-├── live_monitor_with_db.py     # Real-time monitor with DB logging
-├── live_monitor.py             # Real-time monitor (no DB)
+├── live_monitor.py             # Real-time monitor dashboard (--db enables DuckDB logging)
 ├── audio_capture_thread.py     # Continuous mic capture + WebRTC VAD
 ├── silence_detector.py         # Silence/pause detection module
 ├── init_database.py            # DuckDB schema initializer
@@ -80,8 +79,13 @@ uv run gui_app.py
 # CLI (Whisper backend)
 uv run main_whisper.py
 
-# Real-time CLI translation
+# Real-time CLI translation (installed entry point, or run as a module)
+uv run fluentai-rt --src es --dst en
 python -m fluentai.cli.translate_rt --src es --dst en
+
+# Live monitor dashboard (--db enables DuckDB logging)
+uv run live_monitor.py
+uv run live_monitor.py --db
 
 # Initialize / view database
 uv run init_database.py
@@ -186,8 +190,8 @@ Both tables are auto-created on first connection. Use `view_database.py` for ins
 
 Key fields: `session_id`, `step_type`, `latency_ms`, `model_used`, `errors[]`, `metadata` (JSON).
 
-> **Note:** DB logging is currently wired into the CLI / `live_monitor_with_db.py`
-> path and the pipeline threads only. The flagship GUI (`gui_app.py`) does **not**
+> **Note:** DB logging is currently wired into the `live_monitor.py --db` path
+> and the pipeline threads only. The flagship GUI (`gui_app.py`) does **not**
 > yet import `database_logger`, so GUI sessions are not logged. Wiring this into the
 > GUI is planned cleanup.
 
