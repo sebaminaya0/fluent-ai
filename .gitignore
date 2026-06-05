@@ -13,3 +13,6 @@ wheels/
 *.duckdb
 *.db
 model_cache/
+
+# Generated benchmark output
+test_data/benchmark_results.json
