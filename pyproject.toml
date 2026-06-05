@@ -50,7 +50,7 @@ dev = [
 fluentai-rt = "fluentai.cli.translate_rt:main"
 
 [tool.setuptools.packages.find]
-include = ["fluentai"]
+include = ["fluentai*"]
 
 [tool.ruff]
 line-length = 88
