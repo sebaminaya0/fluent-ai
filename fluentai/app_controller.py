@@ -7,6 +7,7 @@ and keeps only view/orchestration concerns.
 """
 
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -107,21 +108,39 @@ class TranslationController:
         self.model_loader = model_loader
 
     def translate(self, text, src_lang, dst_lang):
-        """Translate text via the appropriate model. Returns text or None."""
+        """Translate text via the appropriate model. Returns text or None.
+
+        Multi-sentence input is split and translated sentence-by-sentence so the
+        model's max_length doesn't silently truncate longer utterances.
+        """
         try:
             translator = self.model_loader.get_model(src_lang, dst_lang)
             if not translator:
                 logger.error("No translator for %s -> %s", src_lang, dst_lang)
                 return None
-            try:
-                result = translator(text, max_length=512, do_sample=False)
-            except Exception as pipeline_error:
-                logger.warning("Translator call failed, retrying: %s", pipeline_error)
-                result = translator(text)
-            return result[0]["translation_text"]
+            outputs = []
+            for sentence in self._split_sentences(text):
+                try:
+                    result = translator(sentence, max_length=512, do_sample=False)
+                except Exception as pipeline_error:
+                    logger.warning(
+                        "Translator call failed, retrying: %s", pipeline_error
+                    )
+                    result = translator(sentence)
+                outputs.append(result[0]["translation_text"].strip())
+            return " ".join(o for o in outputs if o).strip()
         except Exception as e:
             logger.error("Translation error: %s", e)
             return None
+
+    @staticmethod
+    def _split_sentences(text):
+        """Split text on ./!/? boundaries (keeping punctuation).
+
+        Returns ``[text]`` when there are no sentence boundaries.
+        """
+        parts = re.split(r"(?<=[.!?])\s+", text.strip())
+        return [p for p in parts if p] or [text]
 
     def determine_target_language(self, src_lang, target_selection):
         """Resolve the destination language from a selection (or 'auto')."""

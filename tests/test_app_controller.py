@@ -30,6 +30,21 @@ def test_translate_returns_none_when_no_model():
     assert ctrl.translate("hola", "es", "xx") is None
 
 
+def test_translate_handles_multiple_sentences():
+    # Each sentence is translated separately (so Marian's max_length can't
+    # truncate the tail), then rejoined. The fake translator tags each call.
+    ctrl = TranslationController(FakeLoader())
+    out = ctrl.translate("Hello there. How are you? Nice to meet you.", "en", "fr")
+    assert out.count("<en->fr>") == 3  # three sentences, three translations
+
+
+def test_split_sentences():
+    split = TranslationController._split_sentences
+    assert split("One. Two! Three?") == ["One.", "Two!", "Three?"]
+    assert split("no punctuation here") == ["no punctuation here"]
+    assert split("") == [""]
+
+
 def test_determine_target_language_auto():
     ctrl = TranslationController(FakeLoader())
     assert ctrl.determine_target_language("es", "auto") == "en"

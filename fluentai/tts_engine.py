@@ -5,9 +5,11 @@ macOS fast path: uses the built-in `say` command (~100ms latency).
 Non-macOS fallback: pyttsx3 (~800ms latency).
 """
 
+import functools
 import logging
 import os
 import platform
+import re
 import subprocess
 import tempfile
 
@@ -15,13 +17,49 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# macOS voice map: language code → `say` voice name
-_MACOS_VOICES: dict[str, str] = {
-    "en": "Samantha",
-    "es": "Monica",
-    "de": "Anna",
-    "fr": "Thomas",
+# Preferred high-quality `say` voices per language, in priority order. Each is
+# used only if actually installed; otherwise we fall back to any installed voice
+# for the language, then to the system default. This avoids the old bug where a
+# hardcoded name (e.g. "Monica" vs the installed "Mónica") silently fell back to
+# the wrong voice.
+_PREFERRED_VOICES: dict[str, list[str]] = {
+    "en": ["Samantha", "Alex"],
+    "es": ["Mónica", "Paulina"],
+    "de": ["Anna", "Petra"],
+    "fr": ["Thomas", "Amélie", "Audrey"],
 }
+
+
+@functools.lru_cache(maxsize=1)
+def _installed_voices() -> dict[str, list[str]]:
+    """Map a 2-letter language prefix → installed `say` voice names.
+
+    Parses ``say -v '?'`` once (cached). Returns an empty map if `say` is
+    unavailable.
+    """
+    voices: dict[str, list[str]] = {}
+    try:
+        result = subprocess.run(
+            ["say", "-v", "?"], capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.splitlines():
+            match = re.match(r"^(.+?)\s+([a-z]{2})_[A-Z]{2}\s+#", line)
+            if match:
+                name, lang = match.group(1).strip(), match.group(2)
+                voices.setdefault(lang, []).append(name)
+    except Exception as exc:  # pragma: no cover - non-macOS / no `say`
+        logger.debug("Could not list `say` voices: %s", exc)
+    return voices
+
+
+@functools.lru_cache(maxsize=16)
+def _resolve_voice(lang: str) -> str | None:
+    """Pick an installed `say` voice for *lang*, or None to use the default."""
+    installed = _installed_voices().get(lang, [])
+    for preferred in _PREFERRED_VOICES.get(lang, []):
+        if preferred in installed:
+            return preferred
+    return installed[0] if installed else None
 
 
 def synthesize_to_numpy(text: str, lang: str, sample_rate: int = 44100) -> np.ndarray:
@@ -44,17 +82,17 @@ def _synthesize_macos(text: str, lang: str, sample_rate: int) -> np.ndarray:
     """macOS `say` fast path → AIFF → pydub → numpy float32."""
     from pydub import AudioSegment as PydubSegment
 
-    voice = _MACOS_VOICES.get(lang, "Samantha")
+    voice = _resolve_voice(lang)
 
     with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp:
         aiff_path = tmp.name
 
     try:
-        result = subprocess.run(
-            ["say", f"--voice={voice}", f"--output-file={aiff_path}", text],
-            capture_output=True,
-            timeout=10,
-        )
+        say_cmd = ["say"]
+        if voice:
+            say_cmd.append(f"--voice={voice}")
+        say_cmd += [f"--output-file={aiff_path}", text]
+        result = subprocess.run(say_cmd, capture_output=True, timeout=10)
         if result.returncode != 0:
             logger.warning(
                 "say command failed (rc=%d), falling back to pyttsx3", result.returncode
