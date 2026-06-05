@@ -12,6 +12,10 @@ import sounddevice as sd
 import speech_recognition as sr
 
 from fluentai import LazyModelLoader
+from fluentai.audio_utils import (
+    apply_automatic_gain_control,
+    normalize_audio_rms,
+)
 from fluentai.tts_engine import synthesize_to_numpy
 from silence_detector import (
     SilenceDetectorIntegration,
@@ -286,90 +290,6 @@ def transcribe_long_audio(audio_file, model, chunk_length=30):
     except Exception as e:
         print(f"Error in chunked transcription: {e}")
         return model.transcribe(audio_file)
-
-
-def normalize_audio_rms(audio_data, target_rms=0.2):
-    """
-    Normalize audio volume using RMS (Root Mean Square) for better Whisper recognition.
-
-    Args:
-        audio_data: Audio data as bytes
-        target_rms: Target RMS level (0.0 to 1.0)
-
-    Returns:
-        Normalized audio data as bytes
-    """
-    try:
-        import numpy as np
-
-        # Convert bytes to numpy array (assuming 16-bit PCM)
-        audio_array = np.frombuffer(audio_data, dtype=np.int16)
-
-        # Calculate current RMS
-        current_rms = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
-
-        if current_rms > 0:
-            # Calculate scaling factor
-            scale = (target_rms * 32767) / current_rms
-
-            # Apply scaling and clip to prevent overflow
-            normalized = np.clip(audio_array * scale, -32767, 32767)
-
-            # Convert back to bytes
-            return normalized.astype(np.int16).tobytes()
-        else:
-            return audio_data
-
-    except ImportError:
-        print("Warning: numpy not available for audio normalization")
-        return audio_data
-    except Exception as e:
-        print(f"Warning: Audio normalization failed: {e}")
-        return audio_data
-
-
-def apply_automatic_gain_control(audio_data):
-    """
-    Apply basic automatic gain control to improve consistency across microphones.
-
-    Args:
-        audio_data: Audio data as bytes
-
-    Returns:
-        Audio data with AGC applied
-    """
-    try:
-        import numpy as np
-
-        # Convert bytes to numpy array
-        audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
-
-        # Calculate dynamic range
-        peak = np.max(np.abs(audio_array))
-
-        if peak > 0:
-            # Apply gentle compression - reduce dynamic range
-            compressed = (
-                np.sign(audio_array) * np.power(np.abs(audio_array) / peak, 0.7) * peak
-            )
-
-            # Apply mild gain boost for quiet speech
-            gain_factor = min(2.0, 16000 / (peak + 1))
-            boosted = compressed * gain_factor
-
-            # Clip to prevent distortion
-            result = np.clip(boosted, -32767, 32767)
-
-            return result.astype(np.int16).tobytes()
-        else:
-            return audio_data
-
-    except ImportError:
-        print("Warning: numpy not available for AGC")
-        return audio_data
-    except Exception as e:
-        print(f"Warning: AGC failed: {e}")
-        return audio_data
 
 
 def grabar_y_reconocer_con_whisper(max_duration=60):

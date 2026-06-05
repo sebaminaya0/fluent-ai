@@ -12,6 +12,7 @@ import speech_recognition as sr
 
 from audio_capture_thread import AudioCaptureThread
 from fluentai.asr_translation_synthesis_thread import ASRTranslationSynthesisThread
+from fluentai.audio_utils import apply_automatic_gain_control, normalize_audio_rms
 from fluentai.blackhole_reproduction_thread import BlackHoleReproductionThread
 from fluentai.model_loader import LazyModelLoader
 from fluentai.tts_engine import synthesize_to_numpy
@@ -686,80 +687,6 @@ class FluentAIGUI:
             self.message_queue.put(("reset_record_btn", True))
             self.message_queue.put(("listening_indicator", "idle"))
 
-    def normalize_audio_rms(self, audio_data, target_rms=0.2):
-        """
-        Normalize audio volume using RMS (Root Mean Square) for better Whisper recognition.
-
-        Args:
-            audio_data: Audio data as bytes
-            target_rms: Target RMS level (0.0 to 1.0)
-
-        Returns:
-            Normalized audio data as bytes
-        """
-        try:
-            # Convert bytes to numpy array (assuming 16-bit PCM)
-            audio_array = np.frombuffer(audio_data, dtype=np.int16)
-
-            # Calculate current RMS
-            current_rms = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
-
-            if current_rms > 0:
-                # Calculate scaling factor
-                scale = (target_rms * 32767) / current_rms
-
-                # Apply scaling and clip to prevent overflow
-                normalized = np.clip(audio_array * scale, -32767, 32767)
-
-                # Convert back to bytes
-                return normalized.astype(np.int16).tobytes()
-            else:
-                return audio_data
-
-        except Exception as e:
-            print(f"Warning: Audio normalization failed: {e}")
-            return audio_data
-
-    def apply_automatic_gain_control(self, audio_data):
-        """
-        Apply basic automatic gain control to improve consistency across microphones.
-
-        Args:
-            audio_data: Audio data as bytes
-
-        Returns:
-            Audio data with AGC applied
-        """
-        try:
-            # Convert bytes to numpy array
-            audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
-
-            # Calculate dynamic range
-            peak = np.max(np.abs(audio_array))
-
-            if peak > 0:
-                # Apply gentle compression - reduce dynamic range
-                compressed = (
-                    np.sign(audio_array)
-                    * np.power(np.abs(audio_array) / peak, 0.7)
-                    * peak
-                )
-
-                # Apply mild gain boost for quiet speech
-                gain_factor = min(2.0, 16000 / (peak + 1))
-                boosted = compressed * gain_factor
-
-                # Clip to prevent distortion
-                result = np.clip(boosted, -32767, 32767)
-
-                return result.astype(np.int16).tobytes()
-            else:
-                return audio_data
-
-        except Exception as e:
-            print(f"Warning: AGC failed: {e}")
-            return audio_data
-
     def process_with_whisper(self, audio, src_lang):
         """Procesa el audio con Whisper con configuración mejorada"""
         try:
@@ -778,7 +705,6 @@ class FluentAIGUI:
 
                 # Now read it back properly, process it, and save it again
                 try:
-                    import numpy as np
                     import soundfile as sf
 
                     # Read the audio data properly
@@ -790,15 +716,13 @@ class FluentAIGUI:
 
                     # Apply audio normalization using RMS for better Whisper recognition
                     print("Aplicando normalización de audio...")
-                    normalized_audio = self.normalize_audio_rms(
+                    normalized_audio = normalize_audio_rms(
                         audio_array.tobytes(), target_rms=0.2
                     )
 
                     # Apply automatic gain control for consistency across microphones
                     print("Aplicando control automático de ganancia...")
-                    processed_audio = self.apply_automatic_gain_control(
-                        normalized_audio
-                    )
+                    processed_audio = apply_automatic_gain_control(normalized_audio)
 
                     # Convert back to numpy array and save properly
                     processed_array = np.frombuffer(processed_audio, dtype=np.int16)
