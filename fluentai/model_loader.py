@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class LazyModelLoader:
     """
     A lazy-loading model manager that maintains an in-memory LRU cache of loaded models.
-    
+
     Features:
     - Accepts a cache directory for model storage
     - Maintains an in-memory LRU cache of loaded models
@@ -40,29 +40,29 @@ class LazyModelLoader:
 
     # Supported model configurations
     TRANSLATION_MODELS = {
-        ('es', 'en'): 'Helsinki-NLP/opus-mt-es-en',
-        ('en', 'es'): 'Helsinki-NLP/opus-mt-en-es',
-        ('es', 'de'): 'Helsinki-NLP/opus-mt-es-de',
-        ('de', 'es'): 'Helsinki-NLP/opus-mt-de-es',
-        ('es', 'fr'): 'Helsinki-NLP/opus-mt-es-fr',
-        ('fr', 'es'): 'Helsinki-NLP/opus-mt-fr-es',
-        ('en', 'de'): 'Helsinki-NLP/opus-mt-en-de',
-        ('de', 'en'): 'Helsinki-NLP/opus-mt-de-en',
-        ('en', 'fr'): 'Helsinki-NLP/opus-mt-en-fr',
-        ('fr', 'en'): 'Helsinki-NLP/opus-mt-fr-en',
+        ("es", "en"): "Helsinki-NLP/opus-mt-es-en",
+        ("en", "es"): "Helsinki-NLP/opus-mt-en-es",
+        ("es", "de"): "Helsinki-NLP/opus-mt-es-de",
+        ("de", "es"): "Helsinki-NLP/opus-mt-de-es",
+        ("es", "fr"): "Helsinki-NLP/opus-mt-es-fr",
+        ("fr", "es"): "Helsinki-NLP/opus-mt-fr-es",
+        ("en", "de"): "Helsinki-NLP/opus-mt-en-de",
+        ("de", "en"): "Helsinki-NLP/opus-mt-de-en",
+        ("en", "fr"): "Helsinki-NLP/opus-mt-en-fr",
+        ("fr", "en"): "Helsinki-NLP/opus-mt-fr-en",
     }
 
     WHISPER_MODELS = {
-        'base': 'base',
-        'small': 'small',
-        'medium': 'medium',
-        'large': 'large',
+        "base": "base",
+        "small": "small",
+        "medium": "medium",
+        "large": "large",
     }
 
     def __init__(self, cache_dir: str = "./model_cache", max_cache_size: int = 128):
         """
         Initialize the LazyModelLoader.
-        
+
         Args:
             cache_dir: Directory to store cached models
             max_cache_size: Maximum number of models to keep in memory cache
@@ -82,12 +82,14 @@ class LazyModelLoader:
         # Thread pool for async loading
         self._executor = ThreadPoolExecutor(max_workers=4)
 
-        logger.info(f"LazyModelLoader initialized with cache directory: {self.cache_dir}")
+        logger.info(
+            f"LazyModelLoader initialized with cache directory: {self.cache_dir}"
+        )
 
     def set_progress_callback(self, callback: Callable[[str, float], None]) -> None:
         """
         Set a callback function to report loading progress.
-        
+
         Args:
             callback: Function that takes (status_message, progress_percentage) parameters
         """
@@ -102,13 +104,13 @@ class LazyModelLoader:
     def get_model(self, src_lang: str, tgt_lang: str) -> Any | None:
         """
         Get a translation model for the specified language pair.
-        
+
         Loads the model on first request and reuses it from cache on subsequent requests.
-        
+
         Args:
             src_lang: Source language code (e.g., 'es', 'en', 'de', 'fr')
             tgt_lang: Target language code (e.g., 'es', 'en', 'de', 'fr')
-            
+
         Returns:
             The translation pipeline model, or None if not available
         """
@@ -130,11 +132,11 @@ class LazyModelLoader:
     def _load_translation_model(self, src_lang: str, tgt_lang: str) -> Any | None:
         """
         Load a translation model and cache it.
-        
+
         Args:
             src_lang: Source language code
             tgt_lang: Target language code
-            
+
         Returns:
             The loaded model pipeline or None if loading failed
         """
@@ -155,7 +157,9 @@ class LazyModelLoader:
             self._loading_status[loading_key] = True
 
         try:
-            self._report_progress(f"Loading translator {src_lang} -> {tgt_lang}...", 0.0)
+            self._report_progress(
+                f"Loading translator {src_lang} -> {tgt_lang}...", 0.0
+            )
 
             logger.info(f"Loading translation model: {model_id}")
             logger.info(f"Cache directory: {self.cache_dir}")
@@ -170,10 +174,7 @@ class LazyModelLoader:
             # Load the model with device specification
             # Note: We don't pass cache_dir to pipeline as it can cause issues with model_kwargs
             model = pipeline(
-                "translation",
-                model=model_id,
-                device=device,
-                torch_dtype=torch.float32
+                "translation", model=model_id, device=device, torch_dtype=torch.float32
             )
 
             logger.info(f"Pipeline created successfully for {model_key}")
@@ -181,9 +182,11 @@ class LazyModelLoader:
             logger.info(f"Model device: {getattr(model.model, 'device', 'unknown')}")
 
             # Check if model has underlying PyTorch model
-            if hasattr(model, 'model'):
+            if hasattr(model, "model"):
                 logger.info(f"Underlying model type: {type(model.model)}")
-                logger.info(f"Model parameters on device: {next(model.model.parameters()).device if hasattr(model.model, 'parameters') else 'no parameters'}")
+                logger.info(
+                    f"Model parameters on device: {next(model.model.parameters()).device if hasattr(model.model, 'parameters') else 'no parameters'}"
+                )
 
             # Cache the model (with LRU eviction if needed)
             self._cache_translation_model(model_key, model)
@@ -200,9 +203,12 @@ class LazyModelLoader:
 
             # Log traceback for debugging
             import traceback
+
             logger.error(f"Full traceback: {traceback.format_exc()}")
 
-            self._report_progress(f"Failed to load translator {src_lang} -> {tgt_lang}", 0.0)
+            self._report_progress(
+                f"Failed to load translator {src_lang} -> {tgt_lang}", 0.0
+            )
             return None
 
         finally:
@@ -212,7 +218,7 @@ class LazyModelLoader:
     def _cache_translation_model(self, model_key: tuple[str, str], model: Any) -> None:
         """
         Cache a translation model with LRU eviction.
-        
+
         Args:
             model_key: Language pair tuple
             model: The loaded model
@@ -225,18 +231,18 @@ class LazyModelLoader:
             logger.info(f"Evicted model from cache: {oldest_key}")
 
             # Clean up if the model has cleanup methods
-            if hasattr(removed_model, 'cleanup'):
+            if hasattr(removed_model, "cleanup"):
                 removed_model.cleanup()
 
         self._translation_models[model_key] = model
 
-    def get_whisper_model(self, model_size: str = 'base') -> Any | None:
+    def get_whisper_model(self, model_size: str = "base") -> Any | None:
         """
         Get a Whisper model for speech recognition.
-        
+
         Args:
             model_size: Size of the Whisper model ('base', 'small', 'medium', 'large')
-            
+
         Returns:
             The Whisper model or None if loading failed
         """
@@ -253,10 +259,10 @@ class LazyModelLoader:
     def _load_whisper_model(self, model_size: str) -> Any | None:
         """
         Load a Whisper model and cache it.
-        
+
         Args:
             model_size: Size of the Whisper model
-            
+
         Returns:
             The loaded Whisper model or None if loading failed
         """
@@ -268,7 +274,9 @@ class LazyModelLoader:
                 return self._whisper_models[model_size]
 
             if loading_key in self._loading_status:
-                logger.info(f"Whisper model {model_size} is already being loaded, waiting...")
+                logger.info(
+                    f"Whisper model {model_size} is already being loaded, waiting..."
+                )
                 return None
 
             self._loading_status[loading_key] = True
@@ -298,6 +306,7 @@ class LazyModelLoader:
 
             # Log traceback for debugging
             import traceback
+
             logger.error(f"Full traceback: {traceback.format_exc()}")
 
             self._report_progress(f"Failed to load Whisper model ({model_size})", 0.0)
@@ -310,13 +319,13 @@ class LazyModelLoader:
     def load_all_for_languages(self, lang_list: list[str]) -> dict[str, bool]:
         """
         Load all translation models for the specified languages.
-        
+
         This method is used when auto-detection mode is enabled to pre-load
         all possible translation models for the given languages.
-        
+
         Args:
             lang_list: List of language codes to load models for
-            
+
         Returns:
             Dictionary mapping language pairs to loading success status
         """
@@ -326,7 +335,10 @@ class LazyModelLoader:
         pairs_to_load = []
         for src_lang in lang_list:
             for tgt_lang in lang_list:
-                if src_lang != tgt_lang and (src_lang, tgt_lang) in self.TRANSLATION_MODELS:
+                if (
+                    src_lang != tgt_lang
+                    and (src_lang, tgt_lang) in self.TRANSLATION_MODELS
+                ):
                     pairs_to_load.append((src_lang, tgt_lang))
 
         total_pairs = len(pairs_to_load)
@@ -340,7 +352,9 @@ class LazyModelLoader:
             completed_count += 1
 
             try:
-                logger.info(f"Loading model {completed_count}/{total_pairs}: {src_lang}->{tgt_lang}")
+                logger.info(
+                    f"Loading model {completed_count}/{total_pairs}: {src_lang}->{tgt_lang}"
+                )
                 model = self._load_translation_model(src_lang, tgt_lang)
                 success = model is not None
                 results[f"{src_lang}->{tgt_lang}"] = success
@@ -348,48 +362,54 @@ class LazyModelLoader:
                 # Report progress
                 progress = (completed_count / total_pairs) * 100
                 self._report_progress(
-                    f"Loaded {completed_count}/{total_pairs} models",
-                    progress
+                    f"Loaded {completed_count}/{total_pairs} models", progress
                 )
 
             except Exception as e:
                 logger.error(f"Error loading model {src_lang}->{tgt_lang}: {e}")
                 results[f"{src_lang}->{tgt_lang}"] = False
 
-        logger.info(f"Finished loading models. Success rate: {sum(results.values())}/{len(results)}")
+        logger.info(
+            f"Finished loading models. Success rate: {sum(results.values())}/{len(results)}"
+        )
         return results
 
-    async def load_all_for_languages_async(self, lang_list: list[str]) -> dict[str, bool]:
+    async def load_all_for_languages_async(
+        self, lang_list: list[str]
+    ) -> dict[str, bool]:
         """
         Asynchronously load all translation models for the specified languages.
-        
+
         This method provides the same functionality as load_all_for_languages
         but runs asynchronously to keep the GUI responsive.
-        
+
         Args:
             lang_list: List of language codes to load models for
-            
+
         Returns:
             Dictionary mapping language pairs to loading success status
         """
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            self._executor,
-            self.load_all_for_languages,
-            lang_list
+            self._executor, self.load_all_for_languages, lang_list
         )
 
-    def preload_models_threaded(self, lang_list: list[str], callback: Callable[[dict[str, bool]], None] | None = None) -> threading.Thread:
+    def preload_models_threaded(
+        self,
+        lang_list: list[str],
+        callback: Callable[[dict[str, bool]], None] | None = None,
+    ) -> threading.Thread:
         """
         Start pre-loading models in a separate thread.
-        
+
         Args:
             lang_list: List of language codes to load models for
             callback: Optional callback to call when loading is complete
-            
+
         Returns:
             The thread object handling the loading
         """
+
         def _load_and_callback():
             try:
                 results = self.load_all_for_languages(lang_list)
@@ -407,7 +427,7 @@ class LazyModelLoader:
     def get_supported_language_pairs(self) -> list[tuple[str, str]]:
         """
         Get all supported language pairs for translation.
-        
+
         Returns:
             List of (source_lang, target_lang) tuples
         """
@@ -416,17 +436,17 @@ class LazyModelLoader:
     def get_cached_models_info(self) -> dict[str, Any]:
         """
         Get information about currently cached models.
-        
+
         Returns:
             Dictionary with cache statistics and model information
         """
         return {
-            'translation_models_cached': len(self._translation_models),
-            'whisper_models_cached': len(self._whisper_models),
-            'cache_size_limit': self.max_cache_size,
-            'translation_models': list(self._translation_models.keys()),
-            'whisper_models': list(self._whisper_models.keys()),
-            'supported_pairs': len(self.TRANSLATION_MODELS)
+            "translation_models_cached": len(self._translation_models),
+            "whisper_models_cached": len(self._whisper_models),
+            "cache_size_limit": self.max_cache_size,
+            "translation_models": list(self._translation_models.keys()),
+            "whisper_models": list(self._whisper_models.keys()),
+            "supported_pairs": len(self.TRANSLATION_MODELS),
         }
 
     def clear_cache(self) -> None:
@@ -434,7 +454,7 @@ class LazyModelLoader:
         with self._loading_lock:
             # Clear translation models
             for model_key, model in self._translation_models.items():
-                if hasattr(model, 'cleanup'):
+                if hasattr(model, "cleanup"):
                     model.cleanup()
             self._translation_models.clear()
 

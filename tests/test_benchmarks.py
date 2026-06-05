@@ -33,13 +33,13 @@ class BenchmarkResults:
     def __init__(self):
         self.results = {}
         self.metadata = {
-            'timestamp': time.time(),
-            'system_info': {
-                'cpu_count': psutil.cpu_count(),
-                'memory_total': psutil.virtual_memory().total,
-                'platform': sys.platform,
-                'python_version': sys.version
-            }
+            "timestamp": time.time(),
+            "system_info": {
+                "cpu_count": psutil.cpu_count(),
+                "memory_total": psutil.virtual_memory().total,
+                "platform": sys.platform,
+                "python_version": sys.version,
+            },
         }
 
     def add_result(self, test_name, result):
@@ -48,11 +48,8 @@ class BenchmarkResults:
 
     def save_to_file(self, filename):
         """Save results to JSON file."""
-        data = {
-            'metadata': self.metadata,
-            'results': self.results
-        }
-        with open(filename, 'w') as f:
+        data = {"metadata": self.metadata, "results": self.results}
+        with open(filename, "w") as f:
             json.dump(data, f, indent=2)
 
     def load_from_file(self, filename):
@@ -62,8 +59,8 @@ class BenchmarkResults:
 
         with open(filename) as f:
             data = json.load(f)
-            self.metadata = data.get('metadata', {})
-            self.results = data.get('results', {})
+            self.metadata = data.get("metadata", {})
+            self.results = data.get("results", {})
 
         return self
 
@@ -119,6 +116,7 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
         """Clean up test fixtures."""
         # Clean up test cache directory
         import shutil
+
         if os.path.exists(self.test_cache_dir):
             shutil.rmtree(self.test_cache_dir)
 
@@ -134,7 +132,7 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             time.sleep(0.1)  # Simulate 100ms model loading time
             return Mock()
 
-        with patch('fluentai.model_loader.pipeline', side_effect=mock_slow_pipeline):
+        with patch("fluentai.model_loader.pipeline", side_effect=mock_slow_pipeline):
             # Simulate eager loading by loading all models at startup
             start_time = time.time()
             start_memory = self.memory_profiler.get_memory_usage()
@@ -153,13 +151,13 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             memory_used = end_memory - start_memory
 
             result = {
-                'startup_time': startup_time,
-                'memory_usage': memory_used,
-                'models_loaded': 5,
-                'loading_strategy': 'eager'
+                "startup_time": startup_time,
+                "memory_usage": memory_used,
+                "models_loaded": 5,
+                "loading_strategy": "eager",
             }
 
-            self.benchmark_results.add_result('startup_without_lazy_loading', result)
+            self.benchmark_results.add_result("startup_without_lazy_loading", result)
             loader.shutdown()
 
             return result
@@ -173,7 +171,7 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             time.sleep(0.1)  # Simulate 100ms model loading time
             return Mock()
 
-        with patch('fluentai.model_loader.pipeline', side_effect=mock_slow_pipeline):
+        with patch("fluentai.model_loader.pipeline", side_effect=mock_slow_pipeline):
             start_time = time.time()
             start_memory = self.memory_profiler.get_memory_usage()
 
@@ -187,13 +185,13 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             memory_used = end_memory - start_memory
 
             result = {
-                'startup_time': startup_time,
-                'memory_usage': memory_used,
-                'models_loaded': 0,
-                'loading_strategy': 'lazy'
+                "startup_time": startup_time,
+                "memory_usage": memory_used,
+                "models_loaded": 0,
+                "loading_strategy": "lazy",
             }
 
-            self.benchmark_results.add_result('startup_with_lazy_loading', result)
+            self.benchmark_results.add_result("startup_with_lazy_loading", result)
             loader.shutdown()
 
             return result
@@ -209,10 +207,10 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             # Simulate memory usage with a mock model
             mock_model = Mock()
             # Add some data to simulate memory usage
-            mock_model._fake_data = b'x' * (1024 * 1024)  # 1MB of fake data
+            mock_model._fake_data = b"x" * (1024 * 1024)  # 1MB of fake data
             return mock_model
 
-        with patch('fluentai.model_loader.pipeline', side_effect=mock_pipeline):
+        with patch("fluentai.model_loader.pipeline", side_effect=mock_pipeline):
             # Test with 1, 5, and 20 language pairs
             test_counts = [1, 5, 20]
 
@@ -234,20 +232,23 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
                 end_memory = self.memory_profiler.get_memory_usage()
 
                 result = {
-                    'language_pairs': pair_count,
-                    'memory_usage_mb': end_memory - start_memory,
-                    'load_time_seconds': load_end_time - load_start_time,
-                    'memory_per_pair_mb': (end_memory - start_memory) / pair_count if pair_count > 0 else 0
+                    "language_pairs": pair_count,
+                    "memory_usage_mb": end_memory - start_memory,
+                    "load_time_seconds": load_end_time - load_start_time,
+                    "memory_per_pair_mb": (end_memory - start_memory) / pair_count
+                    if pair_count > 0
+                    else 0,
                 }
 
-                results[f'{pair_count}_pairs'] = result
+                results[f"{pair_count}_pairs"] = result
                 loader.shutdown()
 
                 # Force garbage collection
                 import gc
+
                 gc.collect()
 
-        self.benchmark_results.add_result('memory_footprint_multiple_pairs', results)
+        self.benchmark_results.add_result("memory_footprint_multiple_pairs", results)
         return results
 
     def benchmark_concurrent_model_loading(self):
@@ -258,12 +259,14 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             time.sleep(0.05)  # Simulate 50ms model loading time
             return Mock()
 
-        with patch('fluentai.model_loader.pipeline', side_effect=mock_slow_pipeline):
+        with patch("fluentai.model_loader.pipeline", side_effect=mock_slow_pipeline):
             loader = LazyModelLoader(cache_dir=self.test_cache_dir)
 
             # Test sequential loading
             start_time = time.time()
-            for i, (src_lang, tgt_lang) in enumerate(loader.get_supported_language_pairs()[:3]):
+            for i, (src_lang, tgt_lang) in enumerate(
+                loader.get_supported_language_pairs()[:3]
+            ):
                 loader.get_model(src_lang, tgt_lang)
             sequential_time = time.time() - start_time
 
@@ -289,13 +292,15 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             concurrent_time = time.time() - start_time
 
             result = {
-                'sequential_time': sequential_time,
-                'concurrent_time': concurrent_time,
-                'speedup_factor': sequential_time / concurrent_time if concurrent_time > 0 else 0,
-                'models_loaded': 3
+                "sequential_time": sequential_time,
+                "concurrent_time": concurrent_time,
+                "speedup_factor": sequential_time / concurrent_time
+                if concurrent_time > 0
+                else 0,
+                "models_loaded": 3,
             }
 
-            self.benchmark_results.add_result('concurrent_loading', result)
+            self.benchmark_results.add_result("concurrent_loading", result)
             loader.shutdown()
 
             return result
@@ -308,27 +313,29 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             time.sleep(0.02)  # Simulate 20ms model loading time
             return Mock()
 
-        with patch('fluentai.model_loader.pipeline', side_effect=mock_slow_pipeline):
+        with patch("fluentai.model_loader.pipeline", side_effect=mock_slow_pipeline):
             loader = LazyModelLoader(cache_dir=self.test_cache_dir)
 
             # Test cache miss (first load)
             start_time = time.time()
-            model1 = loader.get_model('es', 'en')
+            model1 = loader.get_model("es", "en")
             cache_miss_time = time.time() - start_time
 
             # Test cache hit (second load)
             start_time = time.time()
-            model2 = loader.get_model('es', 'en')
+            model2 = loader.get_model("es", "en")
             cache_hit_time = time.time() - start_time
 
             result = {
-                'cache_miss_time': cache_miss_time,
-                'cache_hit_time': cache_hit_time,
-                'cache_speedup': cache_miss_time / cache_hit_time if cache_hit_time > 0 else 0,
-                'models_same_instance': model1 is model2
+                "cache_miss_time": cache_miss_time,
+                "cache_hit_time": cache_hit_time,
+                "cache_speedup": cache_miss_time / cache_hit_time
+                if cache_hit_time > 0
+                else 0,
+                "models_same_instance": model1 is model2,
             }
 
-            self.benchmark_results.add_result('cache_performance', result)
+            self.benchmark_results.add_result("cache_performance", result)
             loader.shutdown()
 
             return result
@@ -340,7 +347,7 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
         def mock_pipeline(*args, **kwargs):
             return Mock()
 
-        with patch('fluentai.model_loader.pipeline', side_effect=mock_pipeline):
+        with patch("fluentai.model_loader.pipeline", side_effect=mock_pipeline):
             # Create loader with small cache size
             loader = LazyModelLoader(cache_dir=self.test_cache_dir, max_cache_size=3)
 
@@ -356,12 +363,12 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             eviction_time = time.time() - start_time
 
             result = {
-                'eviction_time': eviction_time,
-                'cache_size': len(loader._translation_models),
-                'max_cache_size': loader.max_cache_size
+                "eviction_time": eviction_time,
+                "cache_size": len(loader._translation_models),
+                "max_cache_size": loader.max_cache_size,
             }
 
-            self.benchmark_results.add_result('lru_eviction_performance', result)
+            self.benchmark_results.add_result("lru_eviction_performance", result)
             loader.shutdown()
 
             return result
@@ -372,7 +379,7 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
         lazy_result = self.benchmark_startup_time_with_lazy_loading()
 
         # Lazy loading should be significantly faster
-        speedup = eager_result['startup_time'] / lazy_result['startup_time']
+        speedup = eager_result["startup_time"] / lazy_result["startup_time"]
 
         print("Startup time comparison:")
         print(f"  Eager loading: {eager_result['startup_time']:.3f}s")
@@ -380,11 +387,16 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
         print(f"  Speedup: {speedup:.1f}x")
 
         # Assert that lazy loading is faster
-        self.assertLess(lazy_result['startup_time'], eager_result['startup_time'],
-                       "Lazy loading should be faster than eager loading")
+        self.assertLess(
+            lazy_result["startup_time"],
+            eager_result["startup_time"],
+            "Lazy loading should be faster than eager loading",
+        )
 
         # Assert significant speedup (at least 2x)
-        self.assertGreater(speedup, 2.0, "Lazy loading should provide at least 2x speedup")
+        self.assertGreater(
+            speedup, 2.0, "Lazy loading should provide at least 2x speedup"
+        )
 
     def test_memory_footprint_scaling(self):
         """Test memory footprint scaling with different numbers of language pairs."""
@@ -392,25 +404,33 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
 
         print("Memory footprint scaling:")
         for test_name, result in results.items():
-            print(f"  {result['language_pairs']} pairs: {result['memory_usage_mb']:.1f}MB "
-                  f"({result['memory_per_pair_mb']:.1f}MB/pair)")
+            print(
+                f"  {result['language_pairs']} pairs: {result['memory_usage_mb']:.1f}MB "
+                f"({result['memory_per_pair_mb']:.1f}MB/pair)"
+            )
 
         # Memory usage should scale roughly linearly
-        if '1_pairs' in results and '5_pairs' in results:
-            memory_1 = results['1_pairs']['memory_usage_mb']
-            memory_5 = results['5_pairs']['memory_usage_mb']
+        if "1_pairs" in results and "5_pairs" in results:
+            memory_1 = results["1_pairs"]["memory_usage_mb"]
+            memory_5 = results["5_pairs"]["memory_usage_mb"]
 
             # Memory should increase with more models
-            self.assertGreater(memory_5, memory_1,
-                             "Memory usage should increase with more language pairs")
+            self.assertGreater(
+                memory_5,
+                memory_1,
+                "Memory usage should increase with more language pairs",
+            )
 
             # Memory per pair should be relatively consistent
-            per_pair_1 = results['1_pairs']['memory_per_pair_mb']
-            per_pair_5 = results['5_pairs']['memory_per_pair_mb']
+            per_pair_1 = results["1_pairs"]["memory_per_pair_mb"]
+            per_pair_5 = results["5_pairs"]["memory_per_pair_mb"]
 
             # Allow some variance but should be in same ballpark
-            self.assertLess(abs(per_pair_5 - per_pair_1) / per_pair_1, 0.5,
-                           "Memory per pair should be relatively consistent")
+            self.assertLess(
+                abs(per_pair_5 - per_pair_1) / per_pair_1,
+                0.5,
+                "Memory per pair should be relatively consistent",
+            )
 
     def test_concurrent_loading_performance(self):
         """Test concurrent model loading performance."""
@@ -423,8 +443,11 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
 
         # Concurrent loading should be faster (though not necessarily much faster
         # due to threading overhead and mocking)
-        self.assertLessEqual(result['concurrent_time'], result['sequential_time'] * 1.1,
-                            "Concurrent loading should not be significantly slower")
+        self.assertLessEqual(
+            result["concurrent_time"],
+            result["sequential_time"] * 1.1,
+            "Concurrent loading should not be significantly slower",
+        )
 
     def test_cache_hit_performance(self):
         """Test cache hit vs miss performance."""
@@ -436,16 +459,21 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
         print(f"  Cache speedup: {result['cache_speedup']:.1f}x")
 
         # Cache hits should be much faster
-        self.assertLess(result['cache_hit_time'], result['cache_miss_time'],
-                       "Cache hits should be faster than cache misses")
+        self.assertLess(
+            result["cache_hit_time"],
+            result["cache_miss_time"],
+            "Cache hits should be faster than cache misses",
+        )
 
         # Cache should provide significant speedup
-        self.assertGreater(result['cache_speedup'], 10.0,
-                          "Cache should provide at least 10x speedup")
+        self.assertGreater(
+            result["cache_speedup"], 10.0, "Cache should provide at least 10x speedup"
+        )
 
         # Should return same instance
-        self.assertTrue(result['models_same_instance'],
-                       "Cache should return same model instance")
+        self.assertTrue(
+            result["models_same_instance"], "Cache should return same model instance"
+        )
 
     def test_lru_eviction_performance(self):
         """Test LRU cache eviction performance."""
@@ -457,12 +485,14 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
         print(f"  Max cache size: {result['max_cache_size']}")
 
         # Cache size should be maintained
-        self.assertEqual(result['cache_size'], result['max_cache_size'],
-                        "Cache size should be maintained at max_cache_size")
+        self.assertEqual(
+            result["cache_size"],
+            result["max_cache_size"],
+            "Cache size should be maintained at max_cache_size",
+        )
 
         # Eviction should be reasonably fast
-        self.assertLess(result['eviction_time'], 0.1,
-                       "Cache eviction should be fast")
+        self.assertLess(result["eviction_time"], 0.1, "Cache eviction should be fast")
 
     def test_performance_regression(self):
         """Test for performance regression against previous results."""
@@ -474,26 +504,33 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
             # Compare key metrics
             current_cache_result = self.benchmark_cache_performance()
 
-            if 'cache_performance' in previous_results.results:
-                prev_cache = previous_results.results['cache_performance']
+            if "cache_performance" in previous_results.results:
+                prev_cache = previous_results.results["cache_performance"]
 
                 # Check for significant regression (>50% slower)
-                if current_cache_result['cache_hit_time'] > prev_cache['cache_hit_time'] * 1.5:
-                    self.fail(f"Cache performance regression detected: "
-                             f"current={current_cache_result['cache_hit_time']:.3f}s "
-                             f"vs previous={prev_cache['cache_hit_time']:.3f}s")
+                if (
+                    current_cache_result["cache_hit_time"]
+                    > prev_cache["cache_hit_time"] * 1.5
+                ):
+                    self.fail(
+                        f"Cache performance regression detected: "
+                        f"current={current_cache_result['cache_hit_time']:.3f}s "
+                        f"vs previous={prev_cache['cache_hit_time']:.3f}s"
+                    )
 
                 print("Cache performance comparison:")
                 print(f"  Previous cache hit time: {prev_cache['cache_hit_time']:.3f}s")
-                print(f"  Current cache hit time: {current_cache_result['cache_hit_time']:.3f}s")
+                print(
+                    f"  Current cache hit time: {current_cache_result['cache_hit_time']:.3f}s"
+                )
         else:
             print("No previous benchmark results found - this is the baseline run")
 
     def test_generate_performance_report(self):
         """Generate comprehensive performance report."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("PERFORMANCE REPORT")
-        print("="*60)
+        print("=" * 60)
 
         # Run all benchmarks
         self.benchmark_startup_time_with_lazy_loading()
@@ -517,8 +554,8 @@ class TestLazyModelLoaderBenchmarks(unittest.TestCase):
                         print(f"  {key}: {value}")
 
         print(f"\nResults saved to: {self.results_file}")
-        print("="*60)
+        print("=" * 60)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

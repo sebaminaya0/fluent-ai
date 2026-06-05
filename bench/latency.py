@@ -11,8 +11,9 @@ from gtts import gTTS
 # Constants
 SAMPLE_RATE = 16000
 DURATION = 1  # seconds
-OUTPUT_DEVICE = [d['name'] for d in sd.query_devices() if 'BlackHole' in d['name']][0]
+OUTPUT_DEVICE = [d["name"] for d in sd.query_devices() if "BlackHole" in d["name"]][0]
 VAD_SEGMENT_SIZE = 0.2  # 200ms
+
 
 # Function to emit a beep
 def emit_beep(freq=1000, duration=1):
@@ -20,6 +21,7 @@ def emit_beep(freq=1000, duration=1):
     x = 0.5 * np.sin(2 * np.pi * freq * t)
     sd.play(x, samplerate=SAMPLE_RATE)
     sd.wait()
+
 
 # Function to detect the beep
 class BeepDetector:
@@ -33,16 +35,22 @@ class BeepDetector:
         self.queue.put(indata.copy())
 
     def listen(self, duration):
-        with sd.InputStream(channels=1, callback=self.callback, dtype='float32',
-                            samplerate=SAMPLE_RATE, blocksize=int(SAMPLE_RATE * VAD_SEGMENT_SIZE)):
+        with sd.InputStream(
+            channels=1,
+            callback=self.callback,
+            dtype="float32",
+            samplerate=SAMPLE_RATE,
+            blocksize=int(SAMPLE_RATE * VAD_SEGMENT_SIZE),
+        ):
             self.stop_event.clear()
             sd.sleep(int(duration * 1000))
 
     def stop(self):
         self.stop_event.set()
 
+
 # Function to compress TTS
-def compress_tts(text, lang='en'):
+def compress_tts(text, lang="en"):
     tts = gTTS(text=text, lang=lang)
     buf = io.BytesIO()
     tts.write_to_fp(buf)
@@ -50,6 +58,7 @@ def compress_tts(text, lang='en'):
     audio = np.frombuffer(buf.read(), dtype=np.int16)
     pcm_audio = audio.astype(np.float32) / np.iinfo(np.int16).max
     return pcm_audio
+
 
 # Benchmark latency
 if __name__ == "__main__":
@@ -77,4 +86,3 @@ if __name__ == "__main__":
         # Process TTS result (e.g., save or playback)
 
     print("Benchmarking complete.")
-

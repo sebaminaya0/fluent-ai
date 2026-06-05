@@ -20,18 +20,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from fluentai.asr_translation_synthesis_thread import ASRTranslationSynthesisThread
+
     ASR_THREAD_AVAILABLE = True
 except ImportError:
     ASR_THREAD_AVAILABLE = False
 
 try:
     import soundfile as sf
+
     SOUNDFILE_AVAILABLE = True
 except ImportError:
     SOUNDFILE_AVAILABLE = False
 
 try:
     import whisper
+
     WHISPER_AVAILABLE = True
 except ImportError:
     WHISPER_AVAILABLE = False
@@ -104,7 +107,7 @@ class TestASRRoundTrip(unittest.TestCase):
 
         # Create WAV bytes
         wav_buffer = io.BytesIO()
-        with wave.open(wav_buffer, 'wb') as wav_file:
+        with wave.open(wav_buffer, "wb") as wav_file:
             wav_file.setnchannels(1)  # Mono
             wav_file.setsampwidth(2)  # 16-bit
             wav_file.setframerate(sample_rate)
@@ -120,10 +123,11 @@ class TestASRRoundTrip(unittest.TestCase):
 
         # Initialize ASR thread
         thread = ASRTranslationSynthesisThread(
-            q_in, q_out,
-            src_lang='es',
-            dst_lang='en',
-            whisper_model='base'  # Use smaller model for testing
+            q_in,
+            q_out,
+            src_lang="es",
+            dst_lang="en",
+            whisper_model="base",  # Use smaller model for testing
         )
 
         # Start the thread
@@ -135,10 +139,7 @@ class TestASRRoundTrip(unittest.TestCase):
             wav_bytes = self._create_wav_bytes(test_audio_path)
 
             # Put test audio in input queue
-            q_in.put({
-                'wav_data': wav_bytes,
-                'timestamp': time.time()
-            })
+            q_in.put({"wav_data": wav_bytes, "timestamp": time.time()})
 
             # Wait for processing (give it up to 30 seconds)
             result = None
@@ -155,8 +156,12 @@ class TestASRRoundTrip(unittest.TestCase):
             self.assertGreater(len(result), 0, "Result should not be empty")
 
             # Verify audio characteristics
-            self.assertTrue(np.isfinite(result).all(), "Result should contain finite values")
-            self.assertLessEqual(np.max(np.abs(result)), 1.0, "Audio should be normalized")
+            self.assertTrue(
+                np.isfinite(result).all(), "Result should contain finite values"
+            )
+            self.assertLessEqual(
+                np.max(np.abs(result)), 1.0, "Audio should be normalized"
+            )
 
         finally:
             # Clean up
@@ -171,10 +176,7 @@ class TestASRRoundTrip(unittest.TestCase):
 
         # Initialize ASR thread with English to English (no translation)
         thread = ASRTranslationSynthesisThread(
-            q_in, q_out,
-            src_lang='en',
-            dst_lang='en',
-            whisper_model='base'
+            q_in, q_out, src_lang="en", dst_lang="en", whisper_model="base"
         )
 
         # Start the thread
@@ -186,10 +188,7 @@ class TestASRRoundTrip(unittest.TestCase):
             wav_bytes = self._create_wav_bytes(test_audio_path)
 
             # Put test audio in input queue
-            q_in.put({
-                'wav_data': wav_bytes,
-                'timestamp': time.time()
-            })
+            q_in.put({"wav_data": wav_bytes, "timestamp": time.time()})
 
             # Wait for processing
             result = None
@@ -214,9 +213,9 @@ class TestASRRoundTrip(unittest.TestCase):
         """Test ASR thread initialization with different language pairs."""
         # Test different language configurations
         test_configs = [
-            {'src_lang': 'es', 'dst_lang': 'en'},
-            {'src_lang': 'en', 'dst_lang': 'es'},
-            {'src_lang': 'en', 'dst_lang': 'en'},
+            {"src_lang": "es", "dst_lang": "en"},
+            {"src_lang": "en", "dst_lang": "es"},
+            {"src_lang": "en", "dst_lang": "en"},
         ]
 
         for config in test_configs:
@@ -225,16 +224,17 @@ class TestASRRoundTrip(unittest.TestCase):
                 q_out = queue.Queue()
 
                 thread = ASRTranslationSynthesisThread(
-                    q_in, q_out,
-                    src_lang=config['src_lang'],
-                    dst_lang=config['dst_lang'],
-                    whisper_model='base'
+                    q_in,
+                    q_out,
+                    src_lang=config["src_lang"],
+                    dst_lang=config["dst_lang"],
+                    whisper_model="base",
                 )
 
                 # Test initialization
-                self.assertEqual(thread.src_lang, config['src_lang'])
-                self.assertEqual(thread.dst_lang, config['dst_lang'])
-                self.assertEqual(thread.whisper_model_name, 'base')
+                self.assertEqual(thread.src_lang, config["src_lang"])
+                self.assertEqual(thread.dst_lang, config["dst_lang"])
+                self.assertEqual(thread.whisper_model_name, "base")
 
                 # Test thread can be started and stopped
                 thread.start()
@@ -245,6 +245,5 @@ class TestASRRoundTrip(unittest.TestCase):
                 self.assertFalse(thread.is_alive(), "Thread should be stopped")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
-

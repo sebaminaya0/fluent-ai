@@ -34,7 +34,9 @@ def test_vad_probe():
             print(f"  Validation (no speech): {message}")
 
         except Exception as e:
-            print(f"✗ Failed to initialize VAD Probe with aggressiveness {aggressiveness}: {e}")
+            print(
+                f"✗ Failed to initialize VAD Probe with aggressiveness {aggressiveness}: {e}"
+            )
             return False
 
     # Test with synthetic audio data
@@ -53,7 +55,7 @@ def test_vad_probe():
 
     # Test with synthetic speech (sine wave)
     frequency = 440  # A4 note
-    t = np.linspace(0, duration_ms/1000, samples)
+    t = np.linspace(0, duration_ms / 1000, samples)
     speech_data = (np.sin(2 * np.pi * frequency * t) * 16383).astype(np.int16)
     audio_level = probe.get_audio_level(speech_data.tobytes())
     print(f"✓ Speech audio level: {audio_level:.3f}")
@@ -67,6 +69,7 @@ def test_vad_probe():
 
     print("\n✓ All VAD Probe tests passed!")
     return True
+
 
 if __name__ == "__main__":
     success = test_vad_probe()

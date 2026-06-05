@@ -19,7 +19,9 @@ def demo_cli_usage():
     print("python main_whisper.py --silence-detection")
 
     print("\nWith custom parameters:")
-    print("python main_whisper.py --silence-detection --min-silence-len 1000 --silence-thresh -35")
+    print(
+        "python main_whisper.py --silence-detection --min-silence-len 1000 --silence-thresh -35"
+    )
 
     print("\nWith different presets:")
     for preset in SILENCE_DETECTION_PRESETS.keys():
@@ -30,7 +32,10 @@ def demo_cli_usage():
     print("python main_whisper.py --silence-detection --silence-method pydub")
 
     print("\nAll parameters combined:")
-    print("python main_whisper.py --silence-detection --silence-preset aggressive --min-silence-len 1200 --silence-thresh -45 --vad-aggressiveness 3")
+    print(
+        "python main_whisper.py --silence-detection --silence-preset aggressive --min-silence-len 1200 --silence-thresh -45 --vad-aggressiveness 3"
+    )
+
 
 def demo_programmatic_usage():
     """Demonstrate programmatic usage of silence detection."""
@@ -41,9 +46,11 @@ def demo_programmatic_usage():
     for preset_name, config in SILENCE_DETECTION_PRESETS.items():
         try:
             detector = create_silence_detector(preset=preset_name)
-            print(f"✓ {preset_name}: min_silence_len={config['min_silence_len']}ms, "
-                  f"silence_thresh={config['silence_thresh']}dBFS, "
-                  f"method={detector.active_method}")
+            print(
+                f"✓ {preset_name}: min_silence_len={config['min_silence_len']}ms, "
+                f"silence_thresh={config['silence_thresh']}dBFS, "
+                f"method={detector.active_method}"
+            )
         except Exception as e:
             print(f"✗ {preset_name}: Error - {e}")
 
@@ -74,13 +81,14 @@ detector.set_callbacks(
 )
 """)
 
+
 def demo_real_time_detection():
     """Demonstrate real-time silence detection."""
     print("\n=== Real-time Detection Demo ===")
 
     # Check if dependencies are available
     try:
-        detector = create_silence_detector(preset='balanced')
+        detector = create_silence_detector(preset="balanced")
         print(f"✓ Using detection method: {detector.active_method}")
     except Exception as e:
         print(f"✗ Cannot initialize detector: {e}")
@@ -99,13 +107,15 @@ def demo_real_time_detection():
         print(events[-1])
 
     def on_silence_threshold_exceeded(duration_ms):
-        events.append(f"[{time.strftime('%H:%M:%S')}] ⏹️ Auto-stop: {duration_ms:.0f}ms silence")
+        events.append(
+            f"[{time.strftime('%H:%M:%S')}] ⏹️ Auto-stop: {duration_ms:.0f}ms silence"
+        )
         print(events[-1])
 
     detector.set_callbacks(
         on_silence_detected=on_silence_detected,
         on_speech_detected=on_speech_detected,
-        on_silence_threshold_exceeded=on_silence_threshold_exceeded
+        on_silence_threshold_exceeded=on_silence_threshold_exceeded,
     )
 
     print("\nDemo configuration:")
@@ -114,8 +124,11 @@ def demo_real_time_detection():
         print(f"  {key}: {value}")
 
     print("\nNote: This demo shows the silence detection setup.")
-    print("For full real-time detection, integrate with speech_recognition microphone stream.")
+    print(
+        "For full real-time detection, integrate with speech_recognition microphone stream."
+    )
     print("See main_whisper.py for complete implementation.")
+
 
 def demo_gui_features():
     """Demonstrate GUI features."""
@@ -138,6 +151,7 @@ def demo_gui_features():
     print("- Adjust sliders for fine-tuning")
     print("- Status bar shows real-time detection events")
 
+
 def demo_integration_examples():
     """Show integration examples."""
     print("\n=== Integration Examples ===")
@@ -156,7 +170,7 @@ integration = SilenceDetectorIntegration(recognizer, detector)
 def on_auto_stop(duration_ms):
     print(f"Auto-stopping after {duration_ms:.0f}ms of silence")
     # Implement your auto-stop logic here
-    
+
 integration.set_transcription_callback(on_auto_stop)
 
 # Use with microphone
@@ -186,24 +200,25 @@ quiet_detector = create_silence_detector(
 )
 """)
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Demonstrate silence detection features",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    parser.add_argument('--cli', action='store_true',
-                       help='Show CLI usage examples')
-    parser.add_argument('--programmatic', action='store_true',
-                       help='Show programmatic usage examples')
-    parser.add_argument('--realtime', action='store_true',
-                       help='Demonstrate real-time detection')
-    parser.add_argument('--gui', action='store_true',
-                       help='Show GUI features')
-    parser.add_argument('--integration', action='store_true',
-                       help='Show integration examples')
-    parser.add_argument('--all', action='store_true',
-                       help='Show all demonstrations')
+    parser.add_argument("--cli", action="store_true", help="Show CLI usage examples")
+    parser.add_argument(
+        "--programmatic", action="store_true", help="Show programmatic usage examples"
+    )
+    parser.add_argument(
+        "--realtime", action="store_true", help="Demonstrate real-time detection"
+    )
+    parser.add_argument("--gui", action="store_true", help="Show GUI features")
+    parser.add_argument(
+        "--integration", action="store_true", help="Show integration examples"
+    )
+    parser.add_argument("--all", action="store_true", help="Show all demonstrations")
 
     args = parser.parse_args()
 
@@ -243,6 +258,7 @@ def main():
     print("• silence_detector.py - Core implementation")
     print("• main_whisper.py - CLI integration")
     print("• gui_app.py - GUI integration")
+
 
 if __name__ == "__main__":
     main()

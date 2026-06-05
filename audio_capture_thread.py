@@ -44,7 +44,7 @@ class CircularAudioBuffer:
     def __init__(self, sample_rate: int = 16000, buffer_duration: float = 1.0):
         """
         Initialize circular buffer.
-        
+
         Args:
             sample_rate: Audio sample rate in Hz
             buffer_duration: Buffer duration in seconds
@@ -58,7 +58,9 @@ class CircularAudioBuffer:
         self.timestamps = deque(maxlen=self.buffer_size)
         self.lock = threading.Lock()
 
-        logger.info(f"Circular buffer initialized: {buffer_duration}s @ {sample_rate}Hz ({self.buffer_size} samples)")
+        logger.info(
+            f"Circular buffer initialized: {buffer_duration}s @ {sample_rate}Hz ({self.buffer_size} samples)"
+        )
 
     def add_samples(self, samples: np.ndarray, timestamp: float):
         """Add audio samples to the circular buffer."""
@@ -101,15 +103,17 @@ class CircularAudioBuffer:
 class VADProcessor:
     """Voice Activity Detection processor using WebRTC VAD."""
 
-    def __init__(self,
-                 sample_rate: int = 16000,
-                 frame_duration: int = 30,  # ms
-                 aggressiveness: int = 2,
-                 voice_threshold_ms: int = 100,
-                 silence_threshold_ms: int = 200):
+    def __init__(
+        self,
+        sample_rate: int = 16000,
+        frame_duration: int = 30,  # ms
+        aggressiveness: int = 2,
+        voice_threshold_ms: int = 100,
+        silence_threshold_ms: int = 200,
+    ):
         """
         Initialize VAD processor.
-        
+
         Args:
             sample_rate: Audio sample rate (8000, 16000, 32000, or 48000)
             frame_duration: Frame duration in ms (10, 20, or 30)
@@ -139,22 +143,30 @@ class VADProcessor:
         self.voice_frames_threshold = int(voice_threshold_ms / frame_duration)
         self.silence_frames_threshold = int(silence_threshold_ms / frame_duration)
 
-        logger.info(f"VAD initialized: {sample_rate}Hz, {frame_duration}ms frames, aggressiveness={aggressiveness}")
-        logger.info(f"Voice threshold: {voice_threshold_ms}ms ({self.voice_frames_threshold} frames)")
-        logger.info(f"Silence threshold: {silence_threshold_ms}ms ({self.silence_frames_threshold} frames)")
+        logger.info(
+            f"VAD initialized: {sample_rate}Hz, {frame_duration}ms frames, aggressiveness={aggressiveness}"
+        )
+        logger.info(
+            f"Voice threshold: {voice_threshold_ms}ms ({self.voice_frames_threshold} frames)"
+        )
+        logger.info(
+            f"Silence threshold: {silence_threshold_ms}ms ({self.silence_frames_threshold} frames)"
+        )
 
     def process_frame(self, frame: np.ndarray) -> dict[str, Any]:
         """
         Process a single audio frame for VAD.
-        
+
         Args:
             frame: Audio frame as numpy array (int16)
-            
+
         Returns:
             Dictionary with VAD results and state changes
         """
         if len(frame) != self.frame_size:
-            logger.warning(f"Frame size mismatch: expected {self.frame_size}, got {len(frame)}")
+            logger.warning(
+                f"Frame size mismatch: expected {self.frame_size}, got {len(frame)}"
+            )
             return {"error": "frame_size_mismatch"}
 
         # Convert to bytes for WebRTC VAD
@@ -170,7 +182,7 @@ class VADProcessor:
             "should_stop_recording": False,
             "consecutive_voice_frames": self.consecutive_voice_frames,
             "consecutive_silence_frames": self.consecutive_silence_frames,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
 
         if is_voice:
@@ -178,23 +190,37 @@ class VADProcessor:
             self.consecutive_silence_frames = 0
 
             # Check if we should start recording
-            if not self.is_recording and self.consecutive_voice_frames >= self.voice_frames_threshold:
+            if (
+                not self.is_recording
+                and self.consecutive_voice_frames >= self.voice_frames_threshold
+            ):
                 self.is_recording = True
                 self.recording_start_time = time.time()
                 result["should_start_recording"] = True
-                logger.info(f"Started recording after {self.consecutive_voice_frames} voice frames")
+                logger.info(
+                    f"Started recording after {self.consecutive_voice_frames} voice frames"
+                )
 
         else:  # Silence
             self.consecutive_silence_frames += 1
             self.consecutive_voice_frames = 0
 
             # Check if we should stop recording
-            if self.is_recording and self.consecutive_silence_frames >= self.silence_frames_threshold:
+            if (
+                self.is_recording
+                and self.consecutive_silence_frames >= self.silence_frames_threshold
+            ):
                 self.is_recording = False
-                recording_duration = time.time() - self.recording_start_time if self.recording_start_time else 0
+                recording_duration = (
+                    time.time() - self.recording_start_time
+                    if self.recording_start_time
+                    else 0
+                )
                 result["should_stop_recording"] = True
                 result["recording_duration"] = recording_duration
-                logger.info(f"Stopped recording after {self.consecutive_silence_frames} silence frames (duration: {recording_duration:.2f}s)")
+                logger.info(
+                    f"Stopped recording after {self.consecutive_silence_frames} silence frames (duration: {recording_duration:.2f}s)"
+                )
 
         return result
 
@@ -210,7 +236,7 @@ class VADProcessor:
 class AudioCaptureThread:
     """
     Main audio capture thread implementing Hilo 1 functionality.
-    
+
     This thread:
     1. Continuously captures audio into a circular buffer
     2. Uses VAD to detect voice activity
@@ -220,20 +246,22 @@ class AudioCaptureThread:
     6. Ensures max 50ms blocking to prevent audio loss
     """
 
-    def __init__(self,
-                 asr_queue: queue.Queue,
-                 sample_rate: int = 16000,
-                 channels: int = 1,
-                 device: int | None = None,
-                 chunk_size: int = 480,  # 30ms at 16kHz
-                 vad_aggressiveness: int = 2,
-                 voice_threshold_ms: int = 200,
-                 silence_threshold_ms: int = 400,
-                 buffer_duration: float = 1.0,
-                 max_blocking_ms: int = 50):
+    def __init__(
+        self,
+        asr_queue: queue.Queue,
+        sample_rate: int = 16000,
+        channels: int = 1,
+        device: int | None = None,
+        chunk_size: int = 480,  # 30ms at 16kHz
+        vad_aggressiveness: int = 2,
+        voice_threshold_ms: int = 200,
+        silence_threshold_ms: int = 400,
+        buffer_duration: float = 1.0,
+        max_blocking_ms: int = 50,
+    ):
         """
         Initialize audio capture thread.
-        
+
         Args:
             asr_queue: Queue to send captured audio segments for ASR
             sample_rate: Audio sample rate
@@ -262,7 +290,7 @@ class AudioCaptureThread:
             frame_duration=30,  # 30ms frames
             aggressiveness=vad_aggressiveness,
             voice_threshold_ms=voice_threshold_ms,
-            silence_threshold_ms=silence_threshold_ms
+            silence_threshold_ms=silence_threshold_ms,
         )
 
         # Recording state
@@ -273,10 +301,12 @@ class AudioCaptureThread:
         self.is_running = False
         self.thread = None
         self.stop_event = threading.Event()
-        
+
         # Database logging
         self.session_id = None
-        self.input_channel = get_device_name(device) if device is not None else "Default"
+        self.input_channel = (
+            get_device_name(device) if device is not None else "Default"
+        )
 
         # Statistics
         self.stats = {
@@ -284,10 +314,12 @@ class AudioCaptureThread:
             "voice_frames": 0,
             "recordings_created": 0,
             "queue_timeouts": 0,
-            "processing_errors": 0
+            "processing_errors": 0,
         }
 
-        logger.info(f"AudioCaptureThread initialized: {sample_rate}Hz, {channels}ch, chunk_size={chunk_size}")
+        logger.info(
+            f"AudioCaptureThread initialized: {sample_rate}Hz, {channels}ch, chunk_size={chunk_size}"
+        )
 
     def set_session_id(self, session_id: str):
         """Set the session ID for database logging."""
@@ -301,7 +333,7 @@ class AudioCaptureThread:
             wav_buffer = io.BytesIO()
 
             # Write WAV file
-            with wave.open(wav_buffer, 'wb') as wav_file:
+            with wave.open(wav_buffer, "wb") as wav_file:
                 wav_file.setnchannels(self.channels)
                 wav_file.setsampwidth(2)  # 16-bit
                 wav_file.setframerate(self.sample_rate)
@@ -337,11 +369,11 @@ class AudioCaptureThread:
             frame_size = self.vad.frame_size
 
             for i in range(0, len(audio_data), frame_size):
-                frame = audio_data[i:i+frame_size]
+                frame = audio_data[i : i + frame_size]
 
                 # Pad frame if necessary
                 if len(frame) < frame_size:
-                    frame = np.pad(frame, (0, frame_size - len(frame)), 'constant')
+                    frame = np.pad(frame, (0, frame_size - len(frame)), "constant")
 
                 # Process frame with VAD
                 vad_result = self.vad.process_frame(frame)
@@ -380,7 +412,9 @@ class AudioCaptureThread:
         self.current_recording = list(pre_voice_samples)
         self.recording_start_time = time.time()
 
-        logger.info(f"Started recording with {len(pre_voice_samples)} pre-voice samples")
+        logger.info(
+            f"Started recording with {len(pre_voice_samples)} pre-voice samples"
+        )
 
     def _stop_recording(self):
         """Stop current recording and send to ASR queue."""
@@ -403,7 +437,7 @@ class AudioCaptureThread:
                     "channels": self.channels,
                     "duration": len(recording_array) / self.sample_rate,
                     "timestamp": self.recording_start_time,
-                    "samples": len(recording_array)
+                    "samples": len(recording_array),
                 }
 
                 # Send to ASR queue with timeout to prevent blocking
@@ -412,36 +446,42 @@ class AudioCaptureThread:
                 try:
                     self.asr_queue.put(recording_info, timeout=timeout_seconds)
                     self.stats["recordings_created"] += 1
-                    logger.info(f"Sent recording to ASR queue: {recording_info['duration']:.2f}s, {recording_info['samples']} samples")
-                    
+                    logger.info(
+                        f"Sent recording to ASR queue: {recording_info['duration']:.2f}s, {recording_info['samples']} samples"
+                    )
+
                     # Log audio capture to database
                     if self.session_id:
-                        processing_time = (time.time() - self.recording_start_time) * 1000  # Convert to ms
+                        processing_time = (
+                            time.time() - self.recording_start_time
+                        ) * 1000  # Convert to ms
                         db_logger.log_audio_capture(
                             session_id=self.session_id,
                             channel=self.input_channel,
                             message=f"Captured {recording_info['duration']:.2f}s audio ({recording_info['samples']} samples)",
                             latency_ms=processing_time,
                             metadata={
-                                "duration": recording_info['duration'],
-                                "samples": recording_info['samples'],
+                                "duration": recording_info["duration"],
+                                "samples": recording_info["samples"],
                                 "sample_rate": self.sample_rate,
-                                "wav_size": len(wav_bytes)
-                            }
+                                "wav_size": len(wav_bytes),
+                            },
                         )
 
                 except queue.Full:
-                    logger.warning(f"ASR queue full, dropping recording (timeout: {timeout_seconds}s)")
+                    logger.warning(
+                        f"ASR queue full, dropping recording (timeout: {timeout_seconds}s)"
+                    )
                     self.stats["queue_timeouts"] += 1
-                    
+
                     # Log error to database
                     if self.session_id:
                         db_logger.log_audio_capture(
                             session_id=self.session_id,
                             channel=self.input_channel,
-                            message=f"Queue full, dropped recording",
+                            message="Queue full, dropped recording",
                             latency_ms=0,
-                            errors=["Queue full - recording dropped"]
+                            errors=["Queue full - recording dropped"],
                         )
 
         except Exception as e:
@@ -485,7 +525,9 @@ class AudioCaptureThread:
     def _run(self):
         """Main thread execution."""
         try:
-            logger.info(f"Starting audio stream: device={self.device}, sr={self.sample_rate}Hz")
+            logger.info(
+                f"Starting audio stream: device={self.device}, sr={self.sample_rate}Hz"
+            )
 
             with sd.InputStream(
                 device=self.device,
@@ -493,9 +535,8 @@ class AudioCaptureThread:
                 samplerate=self.sample_rate,
                 blocksize=self.chunk_size,
                 dtype=np.float32,
-                callback=self._audio_callback
+                callback=self._audio_callback,
             ) as stream:
-
                 logger.info("Audio stream started successfully")
 
                 # Keep thread alive until stop is requested
@@ -523,10 +564,12 @@ class AudioCaptureThread:
             "vad_state": {
                 "consecutive_voice_frames": self.vad.consecutive_voice_frames,
                 "consecutive_silence_frames": self.vad.consecutive_silence_frames,
-                "is_recording": self.vad.is_recording
+                "is_recording": self.vad.is_recording,
             },
             "buffer_size": len(self.buffer.buffer),
-            "queue_size": self.asr_queue.qsize() if hasattr(self.asr_queue, 'qsize') else -1
+            "queue_size": self.asr_queue.qsize()
+            if hasattr(self.asr_queue, "qsize")
+            else -1,
         }
 
     def reset_stats(self):
@@ -536,7 +579,7 @@ class AudioCaptureThread:
             "voice_frames": 0,
             "recordings_created": 0,
             "queue_timeouts": 0,
-            "processing_errors": 0
+            "processing_errors": 0,
         }
         logger.info("Statistics reset")
 
@@ -544,11 +587,11 @@ class AudioCaptureThread:
 def create_audio_capture_thread(asr_queue: queue.Queue, **kwargs) -> AudioCaptureThread:
     """
     Factory function to create an AudioCaptureThread with default parameters.
-    
+
     Args:
         asr_queue: Queue for sending audio segments to ASR
         **kwargs: Additional configuration parameters
-        
+
     Returns:
         Configured AudioCaptureThread instance
     """
@@ -560,15 +603,30 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Test Audio Capture Thread (Hilo 1)")
-    parser.add_argument("--duration", type=int, default=30, help="Test duration in seconds")
+    parser.add_argument(
+        "--duration", type=int, default=30, help="Test duration in seconds"
+    )
     parser.add_argument("--device", type=int, default=None, help="Audio device ID")
     parser.add_argument("--sample-rate", type=int, default=16000, help="Sample rate")
-    parser.add_argument("--vad-aggressiveness", type=int, default=2, choices=[0,1,2,3],
-                       help="VAD aggressiveness level")
-    parser.add_argument("--voice-threshold", type=int, default=200,
-                       help="Voice detection threshold in ms")
-    parser.add_argument("--silence-threshold", type=int, default=400,
-                       help="Silence detection threshold in ms")
+    parser.add_argument(
+        "--vad-aggressiveness",
+        type=int,
+        default=2,
+        choices=[0, 1, 2, 3],
+        help="VAD aggressiveness level",
+    )
+    parser.add_argument(
+        "--voice-threshold",
+        type=int,
+        default=200,
+        help="Voice detection threshold in ms",
+    )
+    parser.add_argument(
+        "--silence-threshold",
+        type=int,
+        default=400,
+        help="Silence detection threshold in ms",
+    )
 
     args = parser.parse_args()
 
@@ -582,7 +640,7 @@ if __name__ == "__main__":
         device=args.device,
         vad_aggressiveness=args.vad_aggressiveness,
         voice_threshold_ms=args.voice_threshold,
-        silence_threshold_ms=args.silence_threshold
+        silence_threshold_ms=args.silence_threshold,
     )
 
     print(f"Starting audio capture test for {args.duration} seconds...")
@@ -602,9 +660,11 @@ if __name__ == "__main__":
                 recording_info = asr_queue.get(timeout=0.1)
                 recordings_processed += 1
 
-                print(f"Recording {recordings_processed}: {recording_info['duration']:.2f}s, "
-                      f"{recording_info['samples']} samples, "
-                      f"WAV size: {len(recording_info['wav_data'])} bytes")
+                print(
+                    f"Recording {recordings_processed}: {recording_info['duration']:.2f}s, "
+                    f"{recording_info['samples']} samples, "
+                    f"WAV size: {len(recording_info['wav_data'])} bytes"
+                )
 
                 # In a real application, this would be sent to ASR
                 # For testing, we just acknowledge the recording
@@ -621,8 +681,8 @@ if __name__ == "__main__":
         print(f"  Queue timeouts: {stats['queue_timeouts']}")
         print(f"  Processing errors: {stats['processing_errors']}")
 
-        if stats['total_frames'] > 0:
-            voice_percentage = (stats['voice_frames'] / stats['total_frames']) * 100
+        if stats["total_frames"] > 0:
+            voice_percentage = (stats["voice_frames"] / stats["total_frames"]) * 100
             print(f"  Voice activity: {voice_percentage:.1f}%")
 
     except KeyboardInterrupt:

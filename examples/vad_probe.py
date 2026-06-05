@@ -44,12 +44,12 @@ class VADProbe:
         self.stats_lock = threading.Lock()
 
     def reset_term_colors(self):
-        sys.stdout.write('\033[0m')
+        sys.stdout.write("\033[0m")
 
     def get_audio_level(self, audio_data):
         """Calculate audio level for visualization enhancement"""
         audio_array = np.frombuffer(audio_data, dtype=np.int16)
-        rms = np.sqrt(np.mean(audio_array.astype(np.float32)**2))
+        rms = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
         # Normalize to 0-1 range (approximate)
         return min(rms / 3000.0, 1.0) if rms > 0 else 0.0
 
@@ -75,26 +75,31 @@ class VADProbe:
                 if self.first_detection_time is None:
                     self.first_detection_time = current_time
                     detection_latency = (current_time - self.start_time) * 1000
-                    print(f"\n[FIRST DETECTION] Latency: {detection_latency:.1f}ms", file=sys.stderr)
+                    print(
+                        f"\n[FIRST DETECTION] Latency: {detection_latency:.1f}ms",
+                        file=sys.stderr,
+                    )
 
                 # Enhanced visualization based on audio level
                 if audio_level > 0.7:
-                    sys.stdout.write('▓')  # High activity
+                    sys.stdout.write("▓")  # High activity
                 elif audio_level > 0.3:
-                    sys.stdout.write('▒')  # Medium activity
+                    sys.stdout.write("▒")  # Medium activity
                 else:
-                    sys.stdout.write('▓')  # Low speech activity
+                    sys.stdout.write("▓")  # Low speech activity
             else:
-                sys.stdout.write('░')  # No speech
+                sys.stdout.write("░")  # No speech
 
             sys.stdout.flush()
 
             # Track detection history for validation
-            self.detection_history.append({
-                'timestamp': current_time,
-                'is_speech': is_speech,
-                'audio_level': audio_level
-            })
+            self.detection_history.append(
+                {
+                    "timestamp": current_time,
+                    "is_speech": is_speech,
+                    "audio_level": audio_level,
+                }
+            )
 
             # Keep only last 100 frames in history
             if len(self.detection_history) > 100:
@@ -125,9 +130,15 @@ class VADProbe:
         detection_latency = (self.first_detection_time - self.start_time) * 1000
 
         if detection_latency <= 200:
-            return True, f"✓ Detection latency: {detection_latency:.1f}ms (within 200ms requirement)"
+            return (
+                True,
+                f"✓ Detection latency: {detection_latency:.1f}ms (within 200ms requirement)",
+            )
         else:
-            return False, f"✗ Detection latency: {detection_latency:.1f}ms (exceeds 200ms requirement)"
+            return (
+                False,
+                f"✗ Detection latency: {detection_latency:.1f}ms (exceeds 200ms requirement)",
+            )
 
 
 if __name__ == "__main__":
@@ -137,20 +148,27 @@ if __name__ == "__main__":
         epilog="""Examples:
   python examples/vad_probe.py --aggressiveness 0  # Less aggressive
   python examples/vad_probe.py --aggressiveness 3  # More aggressive
-  
+
 Voice Activity Bar:
   ░ = No speech detected
-  ▒ = Medium speech activity  
+  ▒ = Medium speech activity
   ▓ = High speech activity
-  
-Validation: First speech detection should occur within 200ms"""
+
+Validation: First speech detection should occur within 200ms""",
     )
-    parser.add_argument('--aggressiveness', type=int, choices=range(4), default=2,
-                       help='VAD aggressiveness level (0-3). Higher values are more aggressive in detecting speech.')
+    parser.add_argument(
+        "--aggressiveness",
+        type=int,
+        choices=range(4),
+        default=2,
+        help="VAD aggressiveness level (0-3). Higher values are more aggressive in detecting speech.",
+    )
     args = parser.parse_args()
 
     print("VAD Probe - Voice Activity Detection")
-    print(f"Configuration: 16kHz, 16-bit mono, 30ms chunks, aggressiveness={args.aggressiveness}")
+    print(
+        f"Configuration: 16kHz, 16-bit mono, 30ms chunks, aggressiveness={args.aggressiveness}"
+    )
     print("Voice Activity Bar: ░=no speech, ▒=medium, ▓=high")
     print("Validation: First detection should occur within 200ms")
     print("\nPress Ctrl+C to stop and see validation results\n")
@@ -158,7 +176,13 @@ Validation: First speech detection should occur within 200ms"""
     vad_probe = VADProbe(args.aggressiveness)
 
     try:
-        with sd.InputStream(channels=1, samplerate=RATE, blocksize=CHUNK_SIZE, dtype='int16', callback=vad_probe.process):
+        with sd.InputStream(
+            channels=1,
+            samplerate=RATE,
+            blocksize=CHUNK_SIZE,
+            dtype="int16",
+            callback=vad_probe.process,
+        ):
             while True:
                 sd.sleep(1000)  # Keep the stream active
     except KeyboardInterrupt:
@@ -176,9 +200,12 @@ Validation: First speech detection should occur within 200ms"""
         print(f"\nValidation: {message}")
 
         if passed:
-            print("\n✓ VAD Probe validation PASSED - Detection within 200ms requirement")
+            print(
+                "\n✓ VAD Probe validation PASSED - Detection within 200ms requirement"
+            )
         else:
-            print("\n✗ VAD Probe validation FAILED - Detection exceeds 200ms requirement")
+            print(
+                "\n✗ VAD Probe validation FAILED - Detection exceeds 200ms requirement"
+            )
 
         print("\nStopped.")
-

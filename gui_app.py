@@ -2,7 +2,6 @@ import os
 import queue
 import tempfile
 import threading
-import time
 import tkinter as tk
 import warnings
 from tkinter import messagebox, scrolledtext, ttk
@@ -1226,13 +1225,17 @@ class FluentAIGUI:
             return
         try:
             lang = self.detect_language_for_tts(self.current_translation)
-            samples = synthesize_to_numpy(self.current_translation, lang, sample_rate=44100)
+            samples = synthesize_to_numpy(
+                self.current_translation, lang, sample_rate=44100
+            )
             if samples.size == 0:
                 self.message_queue.put(("status", "❌ TTS no generó audio", "red"))
                 return
             sd.play(samples, samplerate=44100)
             sd.wait()
-            self.message_queue.put(("status", "✅ Reproducción completada", "lightgreen"))
+            self.message_queue.put(
+                ("status", "✅ Reproducción completada", "lightgreen")
+            )
         except Exception as e:
             self.message_queue.put(("status", f"❌ Error reproduciendo: {e}", "red"))
 

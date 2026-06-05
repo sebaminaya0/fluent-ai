@@ -1,11 +1,10 @@
-import os
 import re
-import time
 
 import pygame
-import speech_recognition as sr
-from fluentai.tts_engine import synthesize_to_numpy
 import sounddevice as sd
+import speech_recognition as sr
+
+from fluentai.tts_engine import synthesize_to_numpy
 
 # Inicializar Pygame para el audio
 pygame.init()
@@ -24,38 +23,107 @@ print("Modelos cargados exitosamente.")
 
 # --- 2. DEFINICIÓN DE FUNCIONES ---
 
+
 def detectar_idioma(texto):
     """
     Detecta si el texto está en español o inglés usando patrones básicos.
     """
     # Palabras comunes en español
-    palabras_espanol = ['el', 'la', 'de', 'que', 'y', 'es', 'en', 'un', 'una', 'con', 'por', 'para', 'como', 'mi', 'tu', 'hola', 'gracias', 'por favor', 'sí', 'no', 'donde', 'cuando', 'porque', 'muy', 'más', 'menos', 'bueno', 'malo', 'grande', 'pequeño']
+    palabras_espanol = [
+        "el",
+        "la",
+        "de",
+        "que",
+        "y",
+        "es",
+        "en",
+        "un",
+        "una",
+        "con",
+        "por",
+        "para",
+        "como",
+        "mi",
+        "tu",
+        "hola",
+        "gracias",
+        "por favor",
+        "sí",
+        "no",
+        "donde",
+        "cuando",
+        "porque",
+        "muy",
+        "más",
+        "menos",
+        "bueno",
+        "malo",
+        "grande",
+        "pequeño",
+    ]
 
     # Palabras comunes en inglés
-    palabras_ingles = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'hello', 'hi', 'thank', 'you', 'please', 'yes', 'no', 'where', 'when', 'because', 'very', 'more', 'less', 'good', 'bad', 'big', 'small']
+    palabras_ingles = [
+        "the",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "hello",
+        "hi",
+        "thank",
+        "you",
+        "please",
+        "yes",
+        "no",
+        "where",
+        "when",
+        "because",
+        "very",
+        "more",
+        "less",
+        "good",
+        "bad",
+        "big",
+        "small",
+    ]
 
     texto_lower = texto.lower()
-    palabras_texto = re.findall(r'\b\w+\b', texto_lower)
+    palabras_texto = re.findall(r"\b\w+\b", texto_lower)
 
     puntos_espanol = sum(1 for palabra in palabras_texto if palabra in palabras_espanol)
     puntos_ingles = sum(1 for palabra in palabras_texto if palabra in palabras_ingles)
 
     # También verificar caracteres específicos del español
-    if any(char in texto_lower for char in ['ñ', 'á', 'é', 'í', 'ó', 'ú', '¿', '¡']):
+    if any(char in texto_lower for char in ["ñ", "á", "é", "í", "ó", "ú", "¿", "¡"]):
         puntos_espanol += 2
 
     if puntos_espanol > puntos_ingles:
-        return 'es'
+        return "es"
     elif puntos_ingles > puntos_espanol:
-        return 'en'
+        return "en"
     else:
         # Si no está claro, intentar detectar por estructura
-        if any(word in texto_lower for word in ['hola', 'gracias', 'por favor', 'buenos días']):
-            return 'es'
-        elif any(word in texto_lower for word in ['hello', 'thank you', 'please', 'good morning']):
-            return 'en'
+        if any(
+            word in texto_lower
+            for word in ["hola", "gracias", "por favor", "buenos días"]
+        ):
+            return "es"
+        elif any(
+            word in texto_lower
+            for word in ["hello", "thank you", "please", "good morning"]
+        ):
+            return "en"
         else:
-            return 'es'  # Por defecto español
+            return "es"  # Por defecto español
+
 
 def grabar_y_reconocer_voz():
     """
@@ -93,16 +161,16 @@ def grabar_y_reconocer_voz():
             idioma_detectado_es = detectar_idioma(texto_es)
             idioma_detectado_en = detectar_idioma(texto_en)
 
-            if idioma_detectado_es == 'es' and idioma_detectado_en == 'en':
+            if idioma_detectado_es == "es" and idioma_detectado_en == "en":
                 # Ambos son consistentes, elegir el más largo (más probable)
                 if len(texto_es.split()) >= len(texto_en.split()):
-                    texto_final, idioma_final = texto_es, 'es'
+                    texto_final, idioma_final = texto_es, "es"
                 else:
-                    texto_final, idioma_final = texto_en, 'en'
-            elif idioma_detectado_es == 'es':
-                texto_final, idioma_final = texto_es, 'es'
+                    texto_final, idioma_final = texto_en, "en"
+            elif idioma_detectado_es == "es":
+                texto_final, idioma_final = texto_es, "es"
             else:
-                texto_final, idioma_final = texto_en, 'en'
+                texto_final, idioma_final = texto_en, "en"
 
         except:
             texto_final, idioma_final = texto_es, detectar_idioma(texto_es)
@@ -127,6 +195,7 @@ def grabar_y_reconocer_voz():
         print(f"Error con el servicio de reconocimiento de voz; {e}")
         return None, None
 
+
 def traducir_texto(texto_a_traducir, idioma_origen):
     """
     Traduce texto entre español e inglés usando Helsinki-NLP.
@@ -137,16 +206,16 @@ def traducir_texto(texto_a_traducir, idioma_origen):
     print("Traduciendo texto...")
     try:
         # Determinar dirección de traducción
-        if idioma_origen == 'es':
+        if idioma_origen == "es":
             print("Traduciendo de español a inglés...")
             resultado = translator_es_en(texto_a_traducir)
-            idioma_destino = 'en'
+            idioma_destino = "en"
         else:
             print("Traduciendo de inglés a español...")
             resultado = translator_en_es(texto_a_traducir)
-            idioma_destino = 'es'
+            idioma_destino = "es"
 
-        texto_traducido = resultado[0]['translation_text']
+        texto_traducido = resultado[0]["translation_text"]
         print(f"Texto traducido: '{texto_traducido}'")
         return texto_traducido, idioma_destino
 
@@ -154,7 +223,8 @@ def traducir_texto(texto_a_traducir, idioma_origen):
         print(f"Ocurrió un error durante la traducción: {e}")
         return None, None
 
-def hablar_texto(texto_a_hablar, idioma='en'):
+
+def hablar_texto(texto_a_hablar, idioma="en"):
     """
     Sintetiza y reproduce texto con la TTS unificada, sin archivos temporales.
     """
@@ -190,7 +260,9 @@ if __name__ == "__main__":
                 continue
 
             # Paso 2: Traducir el texto
-            texto_traducido, idioma_destino = traducir_texto(texto_original, idioma_origen)
+            texto_traducido, idioma_destino = traducir_texto(
+                texto_original, idioma_origen
+            )
 
             if texto_traducido is None:
                 continue

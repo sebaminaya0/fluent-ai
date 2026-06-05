@@ -22,18 +22,24 @@ from typing import Any
 
 try:
     import webrtcvad
+
     WEBRTCVAD_AVAILABLE = True
 except ImportError:
     WEBRTCVAD_AVAILABLE = False
-    logging.warning("webrtcvad not available, falling back to pydub-only silence detection")
+    logging.warning(
+        "webrtcvad not available, falling back to pydub-only silence detection"
+    )
 
 try:
     from pydub import AudioSegment
     from pydub.silence import detect_nonsilent
+
     PYDUB_AVAILABLE = True
 except ImportError:
     PYDUB_AVAILABLE = False
-    logging.warning("pydub not available, falling back to webrtcvad-only silence detection")
+    logging.warning(
+        "pydub not available, falling back to webrtcvad-only silence detection"
+    )
 
 import speech_recognition as sr
 
@@ -44,17 +50,19 @@ class SilenceDetector:
     and provides callbacks for silence/speech events.
     """
 
-    def __init__(self,
-                 min_silence_len: int = 800,  # ms
-                 silence_thresh: int = -40,   # dBFS
-                 frame_duration: int = 30,    # ms (10, 20, or 30 for webrtcvad)
-                 aggressiveness: int = 2,     # 0-3 for webrtcvad
-                 sample_rate: int = 16000,    # Optimized for Whisper default
-                 method: str = 'auto',        # 'auto', 'webrtcvad', 'pydub'
-                 chunk_size: int = 1024):     # Optimized chunk size for better performance
+    def __init__(
+        self,
+        min_silence_len: int = 800,  # ms
+        silence_thresh: int = -40,  # dBFS
+        frame_duration: int = 30,  # ms (10, 20, or 30 for webrtcvad)
+        aggressiveness: int = 2,  # 0-3 for webrtcvad
+        sample_rate: int = 16000,  # Optimized for Whisper default
+        method: str = "auto",  # 'auto', 'webrtcvad', 'pydub'
+        chunk_size: int = 1024,
+    ):  # Optimized chunk size for better performance
         """
         Initialize the silence detector.
-        
+
         Args:
             min_silence_len: Minimum silence duration in ms to trigger silence event
             silence_thresh: Silence threshold in dBFS (negative values)
@@ -94,40 +102,46 @@ class SilenceDetector:
 
     def _init_detection_method(self):
         """Initialize the detection method based on availability and preferences."""
-        if self.method == 'auto':
+        if self.method == "auto":
             if WEBRTCVAD_AVAILABLE:
-                self.active_method = 'webrtcvad'
+                self.active_method = "webrtcvad"
             elif PYDUB_AVAILABLE:
-                self.active_method = 'pydub'
+                self.active_method = "pydub"
             else:
                 raise RuntimeError("Neither webrtcvad nor pydub is available")
-        elif self.method == 'webrtcvad':
+        elif self.method == "webrtcvad":
             if not WEBRTCVAD_AVAILABLE:
                 raise RuntimeError("webrtcvad is not available")
-            self.active_method = 'webrtcvad'
-        elif self.method == 'pydub':
+            self.active_method = "webrtcvad"
+        elif self.method == "pydub":
             if not PYDUB_AVAILABLE:
                 raise RuntimeError("pydub is not available")
-            self.active_method = 'pydub'
+            self.active_method = "pydub"
         else:
             raise ValueError(f"Unknown detection method: {self.method}")
 
         # Initialize WebRTC VAD if using it
-        if self.active_method == 'webrtcvad':
+        if self.active_method == "webrtcvad":
             self.vad = webrtcvad.Vad(self.aggressiveness)
             # Validate sample rate for webrtcvad
             if self.sample_rate not in [8000, 16000, 32000, 48000]:
-                logging.warning(f"Sample rate {self.sample_rate} not supported by webrtcvad, using 16000")
+                logging.warning(
+                    f"Sample rate {self.sample_rate} not supported by webrtcvad, using 16000"
+                )
                 self.sample_rate = 16000
             # Validate frame duration
             if self.frame_duration not in [10, 20, 30]:
-                logging.warning(f"Frame duration {self.frame_duration} not supported by webrtcvad, using 30")
+                logging.warning(
+                    f"Frame duration {self.frame_duration} not supported by webrtcvad, using 30"
+                )
                 self.frame_duration = 30
 
-    def set_callbacks(self,
-                     on_silence_detected: Callable | None = None,
-                     on_speech_detected: Callable | None = None,
-                     on_silence_threshold_exceeded: Callable | None = None):
+    def set_callbacks(
+        self,
+        on_silence_detected: Callable | None = None,
+        on_speech_detected: Callable | None = None,
+        on_silence_threshold_exceeded: Callable | None = None,
+    ):
         """Set callback functions for silence/speech events."""
         self.on_silence_detected = on_silence_detected
         self.on_speech_detected = on_speech_detected
@@ -141,8 +155,10 @@ class SilenceDetector:
                 logging.info(f"Updated {key} to {value}")
 
         # Reinitialize if method-specific parameters changed
-        if any(key in ['aggressiveness', 'sample_rate', 'frame_duration'] for key in kwargs):
-            if self.active_method == 'webrtcvad':
+        if any(
+            key in ["aggressiveness", "sample_rate", "frame_duration"] for key in kwargs
+        ):
+            if self.active_method == "webrtcvad":
                 self._init_detection_method()
 
     def is_silence_webrtcvad(self, audio_data: bytes) -> bool:
@@ -163,7 +179,7 @@ class SilenceDetector:
                 audio_data,
                 frame_rate=self.sample_rate,
                 sample_width=2,  # 16-bit
-                channels=1
+                channels=1,
             )
 
             # Check if the audio level is below threshold
@@ -174,7 +190,7 @@ class SilenceDetector:
             nonsilent_ranges = detect_nonsilent(
                 audio_segment,
                 min_silence_len=self.min_silence_len,
-                silence_thresh=self.silence_thresh
+                silence_thresh=self.silence_thresh,
             )
 
             return len(nonsilent_ranges) == 0
@@ -184,9 +200,9 @@ class SilenceDetector:
 
     def detect_silence(self, audio_data: bytes) -> bool:
         """Detect silence using the active method."""
-        if self.active_method == 'webrtcvad':
+        if self.active_method == "webrtcvad":
             return self.is_silence_webrtcvad(audio_data)
-        elif self.active_method == 'pydub':
+        elif self.active_method == "pydub":
             return self.is_silence_pydub(audio_data)
         else:
             return False
@@ -194,32 +210,34 @@ class SilenceDetector:
     def process_audio_frame(self, audio_data: bytes) -> dict[str, Any]:
         """
         Process a single audio frame and return detection results.
-        
+
         Returns:
             Dictionary containing detection results and timing information
         """
         current_time = time.time()
         is_silent = self.detect_silence(audio_data)
-        
+
         # Calculate chunk duration in milliseconds
         # Each chunk is chunk_size bytes, and each sample is 2 bytes (16-bit)
         samples_per_chunk = len(audio_data) // 2
         chunk_duration_ms = (samples_per_chunk / self.sample_rate) * 1000
 
         # Add to buffer
-        self.audio_buffer.append({
-            'timestamp': current_time,
-            'is_silent': is_silent,
-            'data': audio_data,
-            'chunk_duration_ms': chunk_duration_ms
-        })
+        self.audio_buffer.append(
+            {
+                "timestamp": current_time,
+                "is_silent": is_silent,
+                "data": audio_data,
+                "chunk_duration_ms": chunk_duration_ms,
+            }
+        )
 
         result = {
-            'is_silent': is_silent,
-            'timestamp': current_time,
-            'silence_duration': 0,
-            'speech_detected': False,
-            'silence_threshold_exceeded': False
+            "is_silent": is_silent,
+            "timestamp": current_time,
+            "silence_duration": 0,
+            "speech_detected": False,
+            "silence_threshold_exceeded": False,
         }
 
         if is_silent:
@@ -230,11 +248,11 @@ class SilenceDetector:
 
             # Accumulate silence duration using chunk duration
             self.silence_start_time += chunk_duration_ms
-            result['silence_duration'] = self.silence_start_time
+            result["silence_duration"] = self.silence_start_time
 
             # Check if silence threshold is exceeded
             if self.silence_start_time >= self.min_silence_len:
-                result['silence_threshold_exceeded'] = True
+                result["silence_threshold_exceeded"] = True
                 if self.on_silence_threshold_exceeded:
                     self.on_silence_threshold_exceeded(self.silence_start_time)
 
@@ -242,7 +260,7 @@ class SilenceDetector:
             if self.silence_start_time is not None:
                 # Speech resumed, reset silence timer
                 self.silence_start_time = None
-                result['speech_detected'] = True
+                result["speech_detected"] = True
                 if self.on_speech_detected:
                     self.on_speech_detected(current_time)
 
@@ -310,13 +328,13 @@ class SilenceDetector:
             time_since_speech = (current_time - self.last_speech_time) * 1000
 
         return {
-            'is_monitoring': self.is_monitoring,
-            'current_silence_duration': silence_duration,
-            'time_since_last_speech': time_since_speech,
-            'active_method': self.active_method,
-            'min_silence_len': self.min_silence_len,
-            'silence_thresh': self.silence_thresh,
-            'buffer_size': len(self.audio_buffer)
+            "is_monitoring": self.is_monitoring,
+            "current_silence_duration": silence_duration,
+            "time_since_last_speech": time_since_speech,
+            "active_method": self.active_method,
+            "min_silence_len": self.min_silence_len,
+            "silence_thresh": self.silence_thresh,
+            "buffer_size": len(self.audio_buffer),
         }
 
 
@@ -326,7 +344,7 @@ class SilenceDetectorIntegration:
     def __init__(self, recognizer: sr.Recognizer, detector: SilenceDetector):
         """
         Initialize the integration.
-        
+
         Args:
             recognizer: SpeechRecognition recognizer instance
             detector: SilenceDetector instance
@@ -353,13 +371,15 @@ class SilenceDetectorIntegration:
         if self.transcription_callback:
             self.transcription_callback(silence_duration_ms)
 
-    def listen_with_silence_detection(self,
-                                    source: sr.AudioSource,
-                                    timeout: float | None = None,
-                                    phrase_time_limit: float | None = None) -> sr.AudioData | None:
+    def listen_with_silence_detection(
+        self,
+        source: sr.AudioSource,
+        timeout: float | None = None,
+        phrase_time_limit: float | None = None,
+    ) -> sr.AudioData | None:
         """
         Listen for audio with integrated silence detection.
-        
+
         This method extends the standard speech recognition listening
         with silence detection capabilities.
         """
@@ -372,9 +392,7 @@ class SilenceDetectorIntegration:
             # more sophisticated audio stream processing
 
             audio = self.recognizer.listen(
-                source,
-                timeout=timeout,
-                phrase_time_limit=phrase_time_limit
+                source, timeout=timeout, phrase_time_limit=phrase_time_limit
             )
 
             return audio
@@ -395,42 +413,32 @@ class SilenceDetectorIntegration:
 
 # Example usage and configuration presets
 SILENCE_DETECTION_PRESETS = {
-    'sensitive': {
-        'min_silence_len': 600,
-        'silence_thresh': -35,
-        'aggressiveness': 1
+    "sensitive": {"min_silence_len": 600, "silence_thresh": -35, "aggressiveness": 1},
+    "balanced": {"min_silence_len": 800, "silence_thresh": -40, "aggressiveness": 2},
+    "aggressive": {"min_silence_len": 1200, "silence_thresh": -45, "aggressiveness": 3},
+    "very_aggressive": {
+        "min_silence_len": 1500,
+        "silence_thresh": -50,
+        "aggressiveness": 3,
     },
-    'balanced': {
-        'min_silence_len': 800,
-        'silence_thresh': -40,
-        'aggressiveness': 2
-    },
-    'aggressive': {
-        'min_silence_len': 1200,
-        'silence_thresh': -45,
-        'aggressiveness': 3
-    },
-    'very_aggressive': {
-        'min_silence_len': 1500,
-        'silence_thresh': -50,
-        'aggressiveness': 3
-    }
 }
 
 
-def create_silence_detector(preset: str = 'balanced', **kwargs) -> SilenceDetector:
+def create_silence_detector(preset: str = "balanced", **kwargs) -> SilenceDetector:
     """
     Create a silence detector with a preset configuration.
-    
+
     Args:
         preset: Preset name ('sensitive', 'balanced', 'aggressive', 'very_aggressive')
         **kwargs: Additional parameters to override preset values
-    
+
     Returns:
         Configured SilenceDetector instance
     """
     if preset not in SILENCE_DETECTION_PRESETS:
-        raise ValueError(f"Unknown preset: {preset}. Available: {list(SILENCE_DETECTION_PRESETS.keys())}")
+        raise ValueError(
+            f"Unknown preset: {preset}. Available: {list(SILENCE_DETECTION_PRESETS.keys())}"
+        )
 
     config = SILENCE_DETECTION_PRESETS[preset].copy()
     config.update(kwargs)
@@ -443,26 +451,34 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Test silence detection")
-    parser.add_argument('--preset', default='balanced',
-                       choices=list(SILENCE_DETECTION_PRESETS.keys()),
-                       help='Silence detection preset')
-    parser.add_argument('--min-silence-len', type=int, default=None,
-                       help='Minimum silence length in ms')
-    parser.add_argument('--silence-thresh', type=int, default=None,
-                       help='Silence threshold in dBFS')
-    parser.add_argument('--method', default='auto',
-                       choices=['auto', 'webrtcvad', 'pydub'],
-                       help='Detection method')
+    parser.add_argument(
+        "--preset",
+        default="balanced",
+        choices=list(SILENCE_DETECTION_PRESETS.keys()),
+        help="Silence detection preset",
+    )
+    parser.add_argument(
+        "--min-silence-len", type=int, default=None, help="Minimum silence length in ms"
+    )
+    parser.add_argument(
+        "--silence-thresh", type=int, default=None, help="Silence threshold in dBFS"
+    )
+    parser.add_argument(
+        "--method",
+        default="auto",
+        choices=["auto", "webrtcvad", "pydub"],
+        help="Detection method",
+    )
 
     args = parser.parse_args()
 
     # Create detector with preset and overrides
     kwargs = {}
     if args.min_silence_len is not None:
-        kwargs['min_silence_len'] = args.min_silence_len
+        kwargs["min_silence_len"] = args.min_silence_len
     if args.silence_thresh is not None:
-        kwargs['silence_thresh'] = args.silence_thresh
-    kwargs['method'] = args.method
+        kwargs["silence_thresh"] = args.silence_thresh
+    kwargs["method"] = args.method
 
     detector = create_silence_detector(args.preset, **kwargs)
 
@@ -482,7 +498,7 @@ if __name__ == "__main__":
     detector.set_callbacks(
         on_silence_detected=on_silence_detected,
         on_speech_detected=on_speech_detected,
-        on_silence_threshold_exceeded=on_silence_threshold_exceeded
+        on_silence_threshold_exceeded=on_silence_threshold_exceeded,
     )
 
     print("Silence detector ready for use")

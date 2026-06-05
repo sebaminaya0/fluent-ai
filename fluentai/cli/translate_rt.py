@@ -35,10 +35,13 @@ from fluentai.model_loader import LazyModelLoader
 
 # Check if audio_capture_thread is available
 try:
-    import sys
     import os
+    import sys
+
     # Add the parent directory to the path so we can import the audio_capture_thread module
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    sys.path.insert(
+        0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
     from audio_capture_thread import AudioCaptureThread
 except ImportError:
     print("Warning: audio_capture_thread not found. Audio capture will be disabled.")
@@ -46,8 +49,7 @@ except ImportError:
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class StatsData:
     """Statistics data for the overlay display."""
+
     # Capture stats
     capture_fps: float = 0.0
     capture_queue_size: int = 0
@@ -85,7 +88,9 @@ class StatsData:
 
         if len(self.capture_timestamps) > 1:
             duration = self.capture_timestamps[-1] - self.capture_timestamps[0]
-            self.capture_fps = (len(self.capture_timestamps) - 1) / duration if duration > 0 else 0.0
+            self.capture_fps = (
+                (len(self.capture_timestamps) - 1) / duration if duration > 0 else 0.0
+            )
 
     def update_processing_fps(self):
         """Update processing FPS based on recent timestamps."""
@@ -93,11 +98,17 @@ class StatsData:
         self.processing_timestamps.append(now)
         # Keep only last 5 seconds of timestamps
         cutoff = now - 5.0
-        self.processing_timestamps = [t for t in self.processing_timestamps if t > cutoff]
+        self.processing_timestamps = [
+            t for t in self.processing_timestamps if t > cutoff
+        ]
 
         if len(self.processing_timestamps) > 1:
             duration = self.processing_timestamps[-1] - self.processing_timestamps[0]
-            self.processing_fps = (len(self.processing_timestamps) - 1) / duration if duration > 0 else 0.0
+            self.processing_fps = (
+                (len(self.processing_timestamps) - 1) / duration
+                if duration > 0
+                else 0.0
+            )
 
     def update_output_fps(self):
         """Update output FPS based on recent timestamps."""
@@ -109,7 +120,9 @@ class StatsData:
 
         if len(self.output_timestamps) > 1:
             duration = self.output_timestamps[-1] - self.output_timestamps[0]
-            self.output_fps = (len(self.output_timestamps) - 1) / duration if duration > 0 else 0.0
+            self.output_fps = (
+                (len(self.output_timestamps) - 1) / duration if duration > 0 else 0.0
+            )
 
 
 class StatsOverlay:
@@ -177,7 +190,7 @@ class StatsOverlay:
                         processing_fps=self.stats.processing_fps,
                         output_queue_size=self.stats.output_queue_size,
                         output_fps=self.stats.output_fps,
-                        end_to_end_latency_ms=self.stats.end_to_end_latency_ms
+                        end_to_end_latency_ms=self.stats.end_to_end_latency_ms,
                     )
 
                 # Clear screen and display stats
@@ -190,7 +203,9 @@ class StatsOverlay:
                 runtime = time.time() - self.start_time
                 hours, remainder = divmod(runtime, 3600)
                 minutes, seconds = divmod(remainder, 60)
-                print(f"Runtime: {int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}")
+                print(
+                    f"Runtime: {int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
+                )
                 print()
 
                 # Thread stats
@@ -231,7 +246,9 @@ class StatsOverlay:
 class RealTimeTranslator:
     """Main real-time translation coordinator."""
 
-    def __init__(self, src_lang: str, dst_lang: str, voice: str, vad_aggressiveness: int):
+    def __init__(
+        self, src_lang: str, dst_lang: str, voice: str, vad_aggressiveness: int
+    ):
         self.src_lang = src_lang
         self.dst_lang = dst_lang
         self.voice = voice
@@ -267,10 +284,12 @@ class RealTimeTranslator:
 
         if not config_path.exists():
             logger.error(f"Language configuration file not found: {config_path}")
-            raise FileNotFoundError(f"Language configuration file not found: {config_path}")
+            raise FileNotFoundError(
+                f"Language configuration file not found: {config_path}"
+            )
 
         try:
-            with open(config_path, encoding='utf-8') as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
 
             logger.info(f"Loaded language configuration from {config_path}")
@@ -278,9 +297,13 @@ class RealTimeTranslator:
 
             # Validate that source and destination languages exist
             if self.src_lang not in config:
-                raise ValueError(f"Source language '{self.src_lang}' not found in configuration")
+                raise ValueError(
+                    f"Source language '{self.src_lang}' not found in configuration"
+                )
             if self.dst_lang not in config:
-                raise ValueError(f"Destination language '{self.dst_lang}' not found in configuration")
+                raise ValueError(
+                    f"Destination language '{self.dst_lang}' not found in configuration"
+                )
 
             return config
 
@@ -301,7 +324,7 @@ class RealTimeTranslator:
                 sample_rate=16000,
                 vad_aggressiveness=self.vad_aggressiveness,
                 voice_threshold_ms=200,
-                silence_threshold_ms=400
+                silence_threshold_ms=400,
             )
 
             logger.info("Audio capture thread initialized")
@@ -315,8 +338,8 @@ class RealTimeTranslator:
         """Initialize the ASR + translation + synthesis thread."""
         try:
             # Get language mappings from config
-            src_whisper_lang = self.language_config[self.src_lang]['whisper']
-            dst_tts_lang = self.language_config[self.dst_lang]['tts']
+            src_whisper_lang = self.language_config[self.src_lang]["whisper"]
+            dst_tts_lang = self.language_config[self.dst_lang]["tts"]
 
             # Create processing thread
             processing_thread = ASRTranslationSynthesisThread(
@@ -324,7 +347,7 @@ class RealTimeTranslator:
                 queue_out=self.output_queue,
                 src_lang=self.src_lang,
                 dst_lang=self.dst_lang,
-                whisper_model='base'
+                whisper_model="base",
             )
 
             logger.info("ASR + Translation + Synthesis thread initialized")
@@ -333,8 +356,12 @@ class RealTimeTranslator:
         except Exception as e:
             logger.error(f"Error initializing processing thread: {e}")
             if "SparseMPS" in str(e) or "MPS" in str(e):
-                logger.warning("MPS backend error detected. This may be due to PyTorch version incompatibility.")
-                logger.warning("Consider using CPU backend or updating PyTorch for MPS support.")
+                logger.warning(
+                    "MPS backend error detected. This may be due to PyTorch version incompatibility."
+                )
+                logger.warning(
+                    "Consider using CPU backend or updating PyTorch for MPS support."
+                )
             return None
 
     def _init_output_thread(self):
@@ -344,7 +371,7 @@ class RealTimeTranslator:
             output_thread = BlackHoleReproductionThread(
                 output_device=1,  # BlackHole 2ch device ID
                 input_queue=self.output_queue,  # Connect to output queue
-                sample_rate=44100
+                sample_rate=44100,
             )
 
             logger.info("BlackHole reproduction thread initialized")
@@ -362,14 +389,14 @@ class RealTimeTranslator:
                 self.stats_overlay.update_stats(
                     capture_queue_size=self.asr_queue.qsize(),
                     processing_queue_size=self.output_queue.qsize(),
-                    output_queue_size=0  # BlackHole thread doesn't have a traditional queue
+                    output_queue_size=0,  # BlackHole thread doesn't have a traditional queue
                 )
 
                 # Monitor capture thread stats
                 if self.capture_thread:
                     capture_stats = self.capture_thread.get_stats()
                     # Record capture events based on voice frames detected
-                    if capture_stats.get('voice_frames', 0) > 0:
+                    if capture_stats.get("voice_frames", 0) > 0:
                         self.stats_overlay.record_capture_event()
 
                 # Monitor processing thread activity
@@ -381,7 +408,7 @@ class RealTimeTranslator:
                             self.stats_overlay.record_output_event()
                     except queue.Empty:
                         pass
-                    
+
                     # Check for ASR queue activity
                     if not self.asr_queue.empty():
                         self.stats_overlay.record_processing_event()
@@ -485,7 +512,7 @@ class RealTimeTranslator:
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully."""
     logger.info("Received shutdown signal, stopping...")
-    if hasattr(signal_handler, 'translator'):
+    if hasattr(signal_handler, "translator"):
         signal_handler.translator.stop()
     sys.exit(0)
 
@@ -499,46 +526,40 @@ def main():
 Examples:
     # Spanish to English with female voice
     uv python -m fluentai.cli.translate_rt --src es --dst en --voice female --vad 2
-    
+
     # English to Spanish with male voice
     uv python -m fluentai.cli.translate_rt --src en --dst es --voice male --vad 1
-    
+
     # German to French with default settings
     uv python -m fluentai.cli.translate_rt --src de --dst fr
-        """
+        """,
     )
 
     parser.add_argument(
-        '--src',
-        required=True,
-        help='Source language code (e.g., es, en, de, fr)'
+        "--src", required=True, help="Source language code (e.g., es, en, de, fr)"
     )
 
     parser.add_argument(
-        '--dst',
-        required=True,
-        help='Destination language code (e.g., es, en, de, fr)'
+        "--dst", required=True, help="Destination language code (e.g., es, en, de, fr)"
     )
 
     parser.add_argument(
-        '--voice',
-        default='female',
-        choices=['female', 'male'],
-        help='Voice type for synthesis (default: female)'
+        "--voice",
+        default="female",
+        choices=["female", "male"],
+        help="Voice type for synthesis (default: female)",
     )
 
     parser.add_argument(
-        '--vad',
+        "--vad",
         type=int,
         default=2,
         choices=[0, 1, 2, 3],
-        help='Voice Activity Detection aggressiveness (0-3, default: 2)'
+        help="Voice Activity Detection aggressiveness (0-3, default: 2)",
     )
 
     parser.add_argument(
-        '--verbose', '-v',
-        action='store_true',
-        help='Enable verbose logging'
+        "--verbose", "-v", action="store_true", help="Enable verbose logging"
     )
 
     args = parser.parse_args()
@@ -558,7 +579,7 @@ Examples:
             src_lang=args.src,
             dst_lang=args.dst,
             voice=args.voice,
-            vad_aggressiveness=args.vad
+            vad_aggressiveness=args.vad,
         )
 
         # Set up signal handlers
@@ -589,7 +610,7 @@ Examples:
         sys.exit(1)
 
     finally:
-        if 'translator' in locals():
+        if "translator" in locals():
             translator.stop()
 
 

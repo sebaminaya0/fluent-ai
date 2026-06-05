@@ -27,7 +27,7 @@ async def main():
     print("🚀 Initializing LazyModelLoader...")
     loader = LazyModelLoader(
         cache_dir="./models",
-        max_cache_size=10  # Small cache for demo
+        max_cache_size=10,  # Small cache for demo
     )
 
     # Set up progress callback
@@ -39,7 +39,7 @@ async def main():
 
     # Load Spanish to English translator
     print("Loading Spanish -> English translator...")
-    es_en_model = loader.get_model('es', 'en')
+    es_en_model = loader.get_model("es", "en")
     if es_en_model:
         # Test translation
         result = es_en_model("Hola, ¿cómo estás?")
@@ -47,7 +47,7 @@ async def main():
 
     # Load English to Spanish translator (should be faster due to caching)
     print("Loading English -> Spanish translator...")
-    en_es_model = loader.get_model('en', 'es')
+    en_es_model = loader.get_model("en", "es")
     if en_es_model:
         # Test translation
         result = en_es_model("Hello, how are you?")
@@ -57,7 +57,7 @@ async def main():
     print("\n🎤 Example 2: Loading Whisper model")
     print("=" * 50)
 
-    whisper_model = loader.get_whisper_model('base')
+    whisper_model = loader.get_whisper_model("base")
     if whisper_model:
         print("Whisper model loaded successfully")
 
@@ -66,7 +66,7 @@ async def main():
     print("=" * 50)
 
     # Languages to support
-    languages = ['es', 'en', 'de', 'fr']
+    languages = ["es", "en", "de", "fr"]
 
     # Load all models synchronously (use this for demo, use async in GUI)
     print("Loading all models for languages:", languages)
@@ -89,8 +89,8 @@ async def main():
     print(f"Whisper models cached: {cache_info['whisper_models_cached']}")
     print(f"Cache size limit: {cache_info['cache_size_limit']}")
     print(f"Supported language pairs: {cache_info['supported_pairs']}")
-    print("Cached translation models:", cache_info['translation_models'])
-    print("Cached Whisper models:", cache_info['whisper_models'])
+    print("Cached translation models:", cache_info["translation_models"])
+    print("Cached Whisper models:", cache_info["whisper_models"])
 
     # Example 5: Demonstrate async loading (for GUI integration)
     print("\n⚡ Example 5: Async loading demonstration")
@@ -102,7 +102,7 @@ async def main():
     # Load models asynchronously
     print("Starting async loading...")
     async_start = time.time()
-    async_results = await loader.load_all_for_languages_async(['es', 'en'])
+    async_results = await loader.load_all_for_languages_async(["es", "en"])
     async_end = time.time()
 
     print(f"Async loading completed in {async_end - async_start:.2f} seconds")
@@ -119,13 +119,13 @@ async def main():
 
     # Clear cache and start threaded loading
     loader.clear_cache()
-    thread = loader.preload_models_threaded(['es', 'en'], loading_complete_callback)
+    thread = loader.preload_models_threaded(["es", "en"], loading_complete_callback)
 
     # Simulate doing other work while loading
     print("Doing other work while models load in background...")
     for i in range(5):
         time.sleep(1)
-        print(f"  Other work step {i+1}/5")
+        print(f"  Other work step {i + 1}/5")
 
     # Wait for loading to complete
     thread.join()

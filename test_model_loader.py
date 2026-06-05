@@ -39,11 +39,16 @@ def test_supported_language_pairs():
 
     # Check that we have the expected pairs
     expected_pairs = [
-        ('es', 'en'), ('en', 'es'),
-        ('es', 'de'), ('de', 'es'),
-        ('es', 'fr'), ('fr', 'es'),
-        ('en', 'de'), ('de', 'en'),
-        ('en', 'fr'), ('fr', 'en'),
+        ("es", "en"),
+        ("en", "es"),
+        ("es", "de"),
+        ("de", "es"),
+        ("es", "fr"),
+        ("fr", "es"),
+        ("en", "de"),
+        ("de", "en"),
+        ("en", "fr"),
+        ("fr", "en"),
     ]
 
     for pair in expected_pairs:
@@ -62,18 +67,21 @@ def test_cache_info():
 
     # Check structure
     expected_keys = [
-        'translation_models_cached', 'whisper_models_cached',
-        'cache_size_limit', 'translation_models', 'whisper_models',
-        'supported_pairs'
+        "translation_models_cached",
+        "whisper_models_cached",
+        "cache_size_limit",
+        "translation_models",
+        "whisper_models",
+        "supported_pairs",
     ]
 
     for key in expected_keys:
         assert key in info, f"Expected key {key} not found in cache info"
 
     # Check initial values
-    assert info['translation_models_cached'] == 0
-    assert info['whisper_models_cached'] == 0
-    assert info['supported_pairs'] == 10  # Number of supported pairs
+    assert info["translation_models_cached"] == 0
+    assert info["whisper_models_cached"] == 0
+    assert info["supported_pairs"] == 10  # Number of supported pairs
 
     print("✅ Cache info test passed")
     return loader
@@ -109,12 +117,12 @@ def test_model_key_validation():
     loader = LazyModelLoader()
 
     # Test valid pairs
-    valid_pairs = [('es', 'en'), ('en', 'es'), ('de', 'fr')]
+    valid_pairs = [("es", "en"), ("en", "es"), ("de", "fr")]
     for src, tgt in valid_pairs[:2]:  # Test first two which should be valid
         assert (src, tgt) in loader.TRANSLATION_MODELS
 
     # Test invalid pairs
-    invalid_pairs = [('es', 'es'), ('invalid', 'en'), ('es', 'invalid')]
+    invalid_pairs = [("es", "es"), ("invalid", "en"), ("es", "invalid")]
     for src, tgt in invalid_pairs:
         assert (src, tgt) not in loader.TRANSLATION_MODELS
 
@@ -158,6 +166,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

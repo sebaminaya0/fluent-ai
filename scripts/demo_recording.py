@@ -25,19 +25,28 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+
 class DemoRecorder:
     def __init__(self):
         self.processes = []
         self.recording_active = False
 
-    def start_translation_process(self, src_lang, dst_lang, input_device=None, output_device=None):
+    def start_translation_process(
+        self, src_lang, dst_lang, input_device=None, output_device=None
+    ):
         """Start a translation process."""
         cmd = [
-            sys.executable, "-m", "fluentai.cli.translate_rt",
-            "--src-lang", src_lang,
-            "--dst-lang", dst_lang,
-            "--whisper-model", "base",  # Use base model for faster demo
-            "--silence-preset", "balanced"
+            sys.executable,
+            "-m",
+            "fluentai.cli.translate_rt",
+            "--src-lang",
+            src_lang,
+            "--dst-lang",
+            dst_lang,
+            "--whisper-model",
+            "base",  # Use base model for faster demo
+            "--silence-preset",
+            "balanced",
         ]
 
         if input_device:
@@ -55,7 +64,7 @@ class DemoRecorder:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
             )
             self.processes.append(process)
             return process
@@ -65,9 +74,9 @@ class DemoRecorder:
 
     def demo_spanish_english(self):
         """Demonstrate Spanish ↔ English translation."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("DEMO: Spanish ↔ English Real-time Translation")
-        print("="*60)
+        print("=" * 60)
 
         print("\n1. Starting Spanish → English translation...")
         process_es_en = self.start_translation_process("es", "en")
@@ -108,9 +117,9 @@ class DemoRecorder:
 
     def demo_portuguese_german(self):
         """Demonstrate Portuguese ↔ German translation."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("DEMO: Portuguese ↔ German Real-time Translation")
-        print("="*60)
+        print("=" * 60)
 
         print("\n1. Starting Portuguese → German translation...")
         process_pt_de = self.start_translation_process("pt", "de")
@@ -151,9 +160,9 @@ class DemoRecorder:
 
     def demo_interactive(self):
         """Interactive demo with multiple language pairs."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("DEMO: Interactive Multi-language Translation")
-        print("="*60)
+        print("=" * 60)
 
         language_pairs = [
             ("es", "en", "Spanish → English"),
@@ -170,9 +179,11 @@ class DemoRecorder:
 
         while True:
             try:
-                choice = input("\nSelect a language pair (1-6) or 'q' to quit: ").strip()
+                choice = input(
+                    "\nSelect a language pair (1-6) or 'q' to quit: "
+                ).strip()
 
-                if choice.lower() == 'q':
+                if choice.lower() == "q":
                     break
 
                 try:
@@ -221,18 +232,19 @@ class DemoRecorder:
         self.cleanup()
         sys.exit(0)
 
+
 def main():
     parser = argparse.ArgumentParser(description="FluentAI Demo Recording Script")
     parser.add_argument(
         "--demo-type",
         choices=["es-en", "pt-de", "interactive"],
         default="interactive",
-        help="Type of demo to run"
+        help="Type of demo to run",
     )
     parser.add_argument(
         "--check-dependencies",
         action="store_true",
-        help="Check if all required dependencies are installed"
+        help="Check if all required dependencies are installed",
     )
 
     args = parser.parse_args()
@@ -246,7 +258,7 @@ def main():
             "transformers",
             "gtts",
             "sounddevice",
-            "webrtcvad"
+            "webrtcvad",
         ]
 
         missing_modules = []
@@ -299,6 +311,7 @@ def main():
     finally:
         demo.cleanup()
         print("\nDemo complete!")
+
 
 if __name__ == "__main__":
     main()

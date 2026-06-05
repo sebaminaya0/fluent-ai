@@ -7,30 +7,28 @@ operations across threads. It includes two main tables:
 2. translations - Summary records for complete translation sessions
 """
 
-import os
 import threading
 import time
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import duckdb
 
 
 class DatabaseLogger:
     """Thread-safe database logger for translation pipeline operations."""
-    
+
     def __init__(self, db_path: str = "translation_logs.duckdb"):
         """
         Initialize the database logger.
-        
+
         Args:
             db_path: Path to the DuckDB database file
         """
         self.db_path = db_path
         self.lock = threading.Lock()
         self._init_database()
-    
+
     def _init_database(self):
         """Initialize the database and create tables if they don't exist."""
         with self.lock:
@@ -53,7 +51,7 @@ class DatabaseLogger:
                         metadata JSON
                     )
                 """)
-                
+
                 # Create translations table
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS translations (
@@ -75,32 +73,42 @@ class DatabaseLogger:
                         metadata JSON
                     )
                 """)
-                
+
                 # Create indexes for better query performance
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_translation_logs_session_id ON translation_logs(session_id)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_translation_logs_timestamp ON translation_logs(timestamp)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_translations_session_id ON translations(session_id)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_translations_timestamp ON translations(timestamp)")
-                
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_translation_logs_session_id ON translation_logs(session_id)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_translation_logs_timestamp ON translation_logs(timestamp)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_translations_session_id ON translations(session_id)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_translations_timestamp ON translations(timestamp)"
+                )
+
                 print(f"Database initialized successfully at {self.db_path}")
-                
+
             except Exception as e:
                 print(f"Error initializing database: {e}")
                 raise
             finally:
                 conn.close()
-    
-    def log_audio_capture(self, 
-                         session_id: str,
-                         channel: str,
-                         message: str,
-                         latency_ms: float,
-                         language: str = None,
-                         errors: List[str] = None,
-                         metadata: Dict[str, Any] = None):
+
+    def log_audio_capture(
+        self,
+        session_id: str,
+        channel: str,
+        message: str,
+        latency_ms: float,
+        language: str = None,
+        errors: list[str] = None,
+        metadata: dict[str, Any] = None,
+    ):
         """
         Log audio capture thread activity.
-        
+
         Args:
             session_id: Unique session identifier
             channel: Audio input channel/device
@@ -119,22 +127,24 @@ class DatabaseLogger:
             latency_ms=latency_ms,
             language=language,
             errors=errors or [],
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
-    
-    def log_asr_translation(self,
-                           session_id: str,
-                           input_lang: str,
-                           output_lang: str,
-                           original_text: str,
-                           translated_text: str,
-                           model_used: str,
-                           latency_ms: float,
-                           errors: List[str] = None,
-                           metadata: Dict[str, Any] = None):
+
+    def log_asr_translation(
+        self,
+        session_id: str,
+        input_lang: str,
+        output_lang: str,
+        original_text: str,
+        translated_text: str,
+        model_used: str,
+        latency_ms: float,
+        errors: list[str] = None,
+        metadata: dict[str, Any] = None,
+    ):
         """
         Log ASR and translation thread activity.
-        
+
         Args:
             session_id: Unique session identifier
             input_lang: Source language
@@ -156,20 +166,22 @@ class DatabaseLogger:
             model_used=model_used,
             language=f"{input_lang}->{output_lang}",
             errors=errors or [],
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
-    
-    def log_audio_playback(self,
-                          session_id: str,
-                          output_channel: str,
-                          message: str,
-                          latency_ms: float,
-                          language: str = None,
-                          errors: List[str] = None,
-                          metadata: Dict[str, Any] = None):
+
+    def log_audio_playback(
+        self,
+        session_id: str,
+        output_channel: str,
+        message: str,
+        latency_ms: float,
+        language: str = None,
+        errors: list[str] = None,
+        metadata: dict[str, Any] = None,
+    ):
         """
         Log audio playback thread activity.
-        
+
         Args:
             session_id: Unique session identifier
             output_channel: Audio output channel/device
@@ -188,27 +200,29 @@ class DatabaseLogger:
             latency_ms=latency_ms,
             language=language,
             errors=errors or [],
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
-    
-    def log_complete_translation(self,
-                               session_id: str,
-                               input_language: str,
-                               output_language: str,
-                               input_channel: str,
-                               output_channel: str,
-                               full_message_input: str,
-                               full_message_translated: str,
-                               total_segments_audio: int,
-                               total_segments_asr: int,
-                               total_segments_output: int,
-                               model_used: str,
-                               total_latency_ms: float,
-                               errors: List[str] = None,
-                               metadata: Dict[str, Any] = None):
+
+    def log_complete_translation(
+        self,
+        session_id: str,
+        input_language: str,
+        output_language: str,
+        input_channel: str,
+        output_channel: str,
+        full_message_input: str,
+        full_message_translated: str,
+        total_segments_audio: int,
+        total_segments_asr: int,
+        total_segments_output: int,
+        model_used: str,
+        total_latency_ms: float,
+        errors: list[str] = None,
+        metadata: dict[str, Any] = None,
+    ):
         """
         Log a complete translation session.
-        
+
         Args:
             session_id: Unique session identifier
             input_language: Source language
@@ -229,41 +243,57 @@ class DatabaseLogger:
             conn = duckdb.connect(self.db_path)
             try:
                 log_id = int(time.time() * 1000000)  # Microsecond timestamp as ID
-                
-                conn.execute("""
+
+                conn.execute(
+                    """
                     INSERT INTO translations (
                         id, session_id, input_language, output_language, input_channel, output_channel,
                         full_message_input, full_message_translated, total_segments_audio,
                         total_segments_asr, total_segments_output, model_used, total_latency_ms,
                         errors, metadata
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, [
-                    log_id, session_id, input_language, output_language, input_channel, output_channel,
-                    full_message_input, full_message_translated, total_segments_audio,
-                    total_segments_asr, total_segments_output, model_used, total_latency_ms,
-                    errors or [], metadata or {}
-                ])
-                
+                """,
+                    [
+                        log_id,
+                        session_id,
+                        input_language,
+                        output_language,
+                        input_channel,
+                        output_channel,
+                        full_message_input,
+                        full_message_translated,
+                        total_segments_audio,
+                        total_segments_asr,
+                        total_segments_output,
+                        model_used,
+                        total_latency_ms,
+                        errors or [],
+                        metadata or {},
+                    ],
+                )
+
             except Exception as e:
                 print(f"Error logging complete translation: {e}")
                 raise
             finally:
                 conn.close()
-    
-    def _log_thread_activity(self,
-                           session_id: str,
-                           thread_id: int,
-                           step_type: str,
-                           channel: str = None,
-                           message: str = None,
-                           latency_ms: float = None,
-                           model_used: str = None,
-                           language: str = None,
-                           errors: List[str] = None,
-                           metadata: Dict[str, Any] = None):
+
+    def _log_thread_activity(
+        self,
+        session_id: str,
+        thread_id: int,
+        step_type: str,
+        channel: str = None,
+        message: str = None,
+        latency_ms: float = None,
+        model_used: str = None,
+        language: str = None,
+        errors: list[str] = None,
+        metadata: dict[str, Any] = None,
+    ):
         """
         Internal method to log thread activity.
-        
+
         Args:
             session_id: Unique session identifier
             thread_id: Thread identifier (1=capture, 2=asr/translation, 3=playback)
@@ -280,30 +310,42 @@ class DatabaseLogger:
             conn = duckdb.connect(self.db_path)
             try:
                 log_id = int(time.time() * 1000000)  # Microsecond timestamp as ID
-                
-                conn.execute("""
+
+                conn.execute(
+                    """
                     INSERT INTO translation_logs (
                         id, session_id, thread_id, step_type, channel, message,
                         latency_ms, model_used, language, errors, metadata
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, [
-                    log_id, session_id, thread_id, step_type, channel, message,
-                    latency_ms, model_used, language, errors or [], metadata or {}
-                ])
-                
+                """,
+                    [
+                        log_id,
+                        session_id,
+                        thread_id,
+                        step_type,
+                        channel,
+                        message,
+                        latency_ms,
+                        model_used,
+                        language,
+                        errors or [],
+                        metadata or {},
+                    ],
+                )
+
             except Exception as e:
                 print(f"Error logging thread activity: {e}")
                 raise
             finally:
                 conn.close()
-    
-    def get_session_logs(self, session_id: str) -> List[Dict]:
+
+    def get_session_logs(self, session_id: str) -> list[dict]:
         """
         Get all logs for a specific session.
-        
+
         Args:
             session_id: Session identifier
-            
+
         Returns:
             List of log records
         """
@@ -312,25 +354,25 @@ class DatabaseLogger:
             try:
                 result = conn.execute(
                     "SELECT * FROM translation_logs WHERE session_id = ? ORDER BY timestamp",
-                    [session_id]
+                    [session_id],
                 ).fetchall()
-                
+
                 columns = [desc[0] for desc in conn.description]
-                return [dict(zip(columns, row)) for row in result]
-                
+                return [dict(zip(columns, row, strict=False)) for row in result]
+
             except Exception as e:
                 print(f"Error getting session logs: {e}")
                 return []
             finally:
                 conn.close()
-    
-    def get_translation_summary(self, session_id: str) -> Optional[Dict]:
+
+    def get_translation_summary(self, session_id: str) -> dict | None:
         """
         Get translation summary for a specific session.
-        
+
         Args:
             session_id: Session identifier
-            
+
         Returns:
             Translation summary record or None
         """
@@ -339,27 +381,27 @@ class DatabaseLogger:
             try:
                 result = conn.execute(
                     "SELECT * FROM translations WHERE session_id = ? ORDER BY timestamp DESC LIMIT 1",
-                    [session_id]
+                    [session_id],
                 ).fetchone()
-                
+
                 if result:
                     columns = [desc[0] for desc in conn.description]
-                    return dict(zip(columns, result))
+                    return dict(zip(columns, result, strict=False))
                 return None
-                
+
             except Exception as e:
                 print(f"Error getting translation summary: {e}")
                 return None
             finally:
                 conn.close()
-    
-    def get_recent_translations(self, limit: int = 10) -> List[Dict]:
+
+    def get_recent_translations(self, limit: int = 10) -> list[dict]:
         """
         Get recent translation summaries.
-        
+
         Args:
             limit: Maximum number of records to return
-            
+
         Returns:
             List of recent translation records
         """
@@ -368,22 +410,22 @@ class DatabaseLogger:
             try:
                 result = conn.execute(
                     "SELECT * FROM translations ORDER BY timestamp DESC LIMIT ?",
-                    [limit]
+                    [limit],
                 ).fetchall()
-                
+
                 columns = [desc[0] for desc in conn.description]
-                return [dict(zip(columns, row)) for row in result]
-                
+                return [dict(zip(columns, row, strict=False)) for row in result]
+
             except Exception as e:
                 print(f"Error getting recent translations: {e}")
                 return []
             finally:
                 conn.close()
-    
+
     def cleanup_old_logs(self, days_to_keep: int = 30):
         """
         Clean up logs older than specified number of days.
-        
+
         Args:
             days_to_keep: Number of days to keep logs
         """
@@ -393,17 +435,17 @@ class DatabaseLogger:
                 # Delete old translation logs
                 conn.execute(
                     "DELETE FROM translation_logs WHERE timestamp < NOW() - INTERVAL ? DAY",
-                    [days_to_keep]
+                    [days_to_keep],
                 )
-                
+
                 # Delete old translation summaries
                 conn.execute(
                     "DELETE FROM translations WHERE timestamp < NOW() - INTERVAL ? DAY",
-                    [days_to_keep]
+                    [days_to_keep],
                 )
-                
+
                 print(f"Cleaned up logs older than {days_to_keep} days")
-                
+
             except Exception as e:
                 print(f"Error cleaning up logs: {e}")
                 raise
@@ -424,9 +466,10 @@ def get_device_name(device_id: int) -> str:
     """Get device name from device ID."""
     try:
         import sounddevice as sd
+
         devices = sd.query_devices()
         if 0 <= device_id < len(devices):
-            return devices[device_id]['name']
+            return devices[device_id]["name"]
         return f"Device_{device_id}"
     except Exception:
         return f"Device_{device_id}"

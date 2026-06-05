@@ -2,7 +2,7 @@
 """
 Test script for FluentAI CLI functionality
 
-This script demonstrates the CLI capabilities without requiring 
+This script demonstrates the CLI capabilities without requiring
 actual audio hardware or full thread initialization.
 """
 
@@ -16,9 +16,12 @@ def test_cli_help():
     print("Testing CLI help...")
 
     try:
-        result = subprocess.run([
-            "uv", "run", "python", "-m", "fluentai.cli.translate_rt", "--help"
-        ], capture_output=True, text=True, cwd=Path.cwd())
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "fluentai.cli.translate_rt", "--help"],
+            capture_output=True,
+            text=True,
+            cwd=Path.cwd(),
+        )
 
         if result.returncode == 0:
             print("✅ CLI help working correctly")
@@ -35,15 +38,19 @@ def test_cli_help():
 
     return True
 
+
 def test_cli_validation():
     """Test CLI argument validation."""
     print("\nTesting CLI argument validation...")
 
     # Test missing required arguments
     try:
-        result = subprocess.run([
-            "uv", "run", "python", "-m", "fluentai.cli.translate_rt"
-        ], capture_output=True, text=True, cwd=Path.cwd())
+        result = subprocess.run(
+            ["uv", "run", "python", "-m", "fluentai.cli.translate_rt"],
+            capture_output=True,
+            text=True,
+            cwd=Path.cwd(),
+        )
 
         if result.returncode != 0 and "required" in result.stderr:
             print("✅ Required argument validation working")
@@ -57,10 +64,22 @@ def test_cli_validation():
 
     # Test same source and destination
     try:
-        result = subprocess.run([
-            "uv", "run", "python", "-m", "fluentai.cli.translate_rt",
-            "--src", "en", "--dst", "en"
-        ], capture_output=True, text=True, cwd=Path.cwd())
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "fluentai.cli.translate_rt",
+                "--src",
+                "en",
+                "--dst",
+                "en",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=Path.cwd(),
+        )
 
         if result.returncode != 0:
             print("✅ Same source/destination validation working")
@@ -73,6 +92,7 @@ def test_cli_validation():
         return False
 
     return True
+
 
 def test_configuration_loading():
     """Test configuration loading."""
@@ -88,9 +108,13 @@ def test_configuration_loading():
 
     # Test loading configuration with valid languages
     try:
-        result = subprocess.run([
-            "uv", "run", "python", "-c",
-            """
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "python",
+                "-c",
+                """
 import yaml
 from pathlib import Path
 
@@ -101,8 +125,12 @@ with open(config_path, 'r') as f:
 print("Available languages:", list(config.keys()))
 for lang, settings in config.items():
     print(f"  {lang}: whisper={settings.get('whisper')}, tts={settings.get('tts')}")
-            """
-        ], capture_output=True, text=True, cwd=Path.cwd())
+            """,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=Path.cwd(),
+        )
 
         if result.returncode == 0:
             print("✅ Configuration loading working")
@@ -118,15 +146,20 @@ for lang, settings in config.items():
 
     return True
 
+
 def test_thread_initialization():
     """Test thread initialization (without actually starting them)."""
     print("\nTesting thread initialization...")
 
     # Test initialization with dry-run approach
     try:
-        result = subprocess.run([
-            "uv", "run", "python", "-c",
-            """
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "python",
+                "-c",
+                """
 import sys
 import os
 sys.path.insert(0, os.getcwd())
@@ -137,7 +170,7 @@ from fluentai.cli.translate_rt import RealTimeTranslator
 try:
     translator = RealTimeTranslator(
         src_lang='es',
-        dst_lang='en', 
+        dst_lang='en',
         voice='female',
         vad_aggressiveness=2
     )
@@ -145,12 +178,16 @@ try:
     print(f"Source language: {translator.src_lang}")
     print(f"Destination language: {translator.dst_lang}")
     print(f"Language config loaded: {len(translator.language_config)} languages")
-    
+
 except Exception as e:
     print(f"❌ RealTimeTranslator initialization failed: {e}")
     sys.exit(1)
-            """
-        ], capture_output=True, text=True, cwd=Path.cwd())
+            """,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=Path.cwd(),
+        )
 
         if result.returncode == 0:
             print("✅ Thread initialization working")
@@ -166,6 +203,7 @@ except Exception as e:
 
     return True
 
+
 def main():
     """Run all tests."""
     print("FluentAI CLI Test Suite")
@@ -175,7 +213,7 @@ def main():
         test_cli_help,
         test_cli_validation,
         test_configuration_loading,
-        test_thread_initialization
+        test_thread_initialization,
     ]
 
     passed = 0
@@ -195,6 +233,7 @@ def main():
     else:
         print("❌ Some tests failed")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

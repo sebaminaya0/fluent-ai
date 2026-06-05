@@ -8,11 +8,11 @@ import time
 # Suppress specific warnings
 import warnings
 
+import sounddevice as sd
 import speech_recognition as sr
 
 from fluentai import LazyModelLoader
 from fluentai.tts_engine import synthesize_to_numpy
-import sounddevice as sd
 from silence_detector import (
     SilenceDetectorIntegration,
     create_silence_detector,
@@ -43,14 +43,17 @@ args = None
 
 # --- 2. DEFINICIÓN DE FUNCIONES ---
 
+
 def es_texto_latino(texto):
     """
     Verifica si el texto contiene principalmente caracteres latinos (español/inglés).
     Retorna False si detecta caracteres de otros alfabetos como griego, cirílico, etc.
     """
     # Caracteres latinos básicos + acentos españoles + signos de puntuación
-    caracteres_latinos = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
-                           'áéíóúüñÁÉÍÓÚÜÑ¿¡.,;:!?()[]{}"\'-_ ')
+    caracteres_latinos = set(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "áéíóúüñÁÉÍÓÚÜÑ¿¡.,;:!?()[]{}\"'-_ "
+    )
 
     # Contar caracteres latinos vs no latinos
     caracteres_texto = set(texto)
@@ -64,6 +67,7 @@ def es_texto_latino(texto):
 
     return True
 
+
 def validar_idioma_whisper(texto, idioma_detectado):
     """
     Valida que el texto transcrito sea consistente con el idioma detectado por Whisper.
@@ -74,12 +78,12 @@ def validar_idioma_whisper(texto, idioma_detectado):
 
     # Mapear idiomas de Whisper a códigos estándar
     whisper_to_code = {
-        'spanish': 'es',
-        'english': 'en',
-        'german': 'de',
-        'french': 'fr',
-        'italian': 'it',
-        'portuguese': 'pt'
+        "spanish": "es",
+        "english": "en",
+        "german": "de",
+        "french": "fr",
+        "italian": "it",
+        "portuguese": "pt",
     }
 
     # Obtener el código del idioma
@@ -87,7 +91,7 @@ def validar_idioma_whisper(texto, idioma_detectado):
 
     # En modo auto, solo aceptar español e inglés
     if auto_detect:
-        if idioma_codigo not in ['es', 'en']:
+        if idioma_codigo not in ["es", "en"]:
             return False
     else:
         # En modo manual, verificar que el idioma detectado sea uno de los configurados
@@ -95,6 +99,7 @@ def validar_idioma_whisper(texto, idioma_detectado):
             return False
 
     return True
+
 
 def detectar_idioma(texto):
     """
@@ -105,43 +110,111 @@ def detectar_idioma(texto):
         return None  # Retornar None si no es texto latino
 
     # Palabras comunes en español
-    palabras_espanol = ['el', 'la', 'de', 'que', 'y', 'es', 'en', 'un', 'una', 'con', 'por', 'para', 'como', 'mi', 'tu', 'hola', 'gracias', 'por favor', 'sí', 'no', 'donde', 'cuando', 'porque', 'muy', 'más', 'menos', 'bueno', 'malo', 'grande', 'pequeño']
+    palabras_espanol = [
+        "el",
+        "la",
+        "de",
+        "que",
+        "y",
+        "es",
+        "en",
+        "un",
+        "una",
+        "con",
+        "por",
+        "para",
+        "como",
+        "mi",
+        "tu",
+        "hola",
+        "gracias",
+        "por favor",
+        "sí",
+        "no",
+        "donde",
+        "cuando",
+        "porque",
+        "muy",
+        "más",
+        "menos",
+        "bueno",
+        "malo",
+        "grande",
+        "pequeño",
+    ]
 
     # Palabras comunes en inglés
-    palabras_ingles = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'hello', 'hi', 'thank', 'you', 'please', 'yes', 'no', 'where', 'when', 'because', 'very', 'more', 'less', 'good', 'bad', 'big', 'small']
+    palabras_ingles = [
+        "the",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "hello",
+        "hi",
+        "thank",
+        "you",
+        "please",
+        "yes",
+        "no",
+        "where",
+        "when",
+        "because",
+        "very",
+        "more",
+        "less",
+        "good",
+        "bad",
+        "big",
+        "small",
+    ]
 
     texto_lower = texto.lower()
-    palabras_texto = re.findall(r'\b\w+\b', texto_lower)
+    palabras_texto = re.findall(r"\b\w+\b", texto_lower)
 
     puntos_espanol = sum(1 for palabra in palabras_texto if palabra in palabras_espanol)
     puntos_ingles = sum(1 for palabra in palabras_texto if palabra in palabras_ingles)
 
     # También verificar caracteres específicos del español
-    if any(char in texto_lower for char in ['ñ', 'á', 'é', 'í', 'ó', 'ú', '¿', '¡']):
+    if any(char in texto_lower for char in ["ñ", "á", "é", "í", "ó", "ú", "¿", "¡"]):
         puntos_espanol += 2
 
     if puntos_espanol > puntos_ingles:
-        return 'es'
+        return "es"
     elif puntos_ingles > puntos_espanol:
-        return 'en'
+        return "en"
     else:
         # Si no está claro, intentar detectar por estructura
-        if any(word in texto_lower for word in ['hola', 'gracias', 'por favor', 'buenos días']):
-            return 'es'
-        elif any(word in texto_lower for word in ['hello', 'thank you', 'please', 'good morning']):
-            return 'en'
+        if any(
+            word in texto_lower
+            for word in ["hola", "gracias", "por favor", "buenos días"]
+        ):
+            return "es"
+        elif any(
+            word in texto_lower
+            for word in ["hello", "thank you", "please", "good morning"]
+        ):
+            return "en"
         else:
-            return 'es'  # Por defecto español
+            return "es"  # Por defecto español
+
 
 def transcribe_long_audio(audio_file, model, chunk_length=30):
     """
     Transcribe audio files in chunks to handle long recordings efficiently.
-    
+
     Args:
         audio_file: Path to the audio file
         model: Whisper model instance
         chunk_length: Length of each chunk in seconds (default: 30)
-    
+
     Returns:
         Combined transcription result
     """
@@ -164,16 +237,18 @@ def transcribe_long_audio(audio_file, model, chunk_length=30):
         texts = []
 
         for i in range(0, len(audio), chunk_size):
-            chunk = audio[i:i + chunk_size]
+            chunk = audio[i : i + chunk_size]
             chunks.append(chunk)
 
             # Create temporary file for this chunk
             import tempfile
+
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_chunk:
                 chunk_filename = temp_chunk.name
 
                 # Write chunk to temporary file
                 import soundfile as sf
+
                 sf.write(chunk_filename, chunk, sr)
 
                 try:
@@ -204,7 +279,7 @@ def transcribe_long_audio(audio_file, model, chunk_length=30):
         return {
             "text": combined_text,
             "language": language,
-            "segments": []  # Could be enhanced to combine segments
+            "segments": [],  # Could be enhanced to combine segments
         }
 
     except ImportError:
@@ -214,14 +289,15 @@ def transcribe_long_audio(audio_file, model, chunk_length=30):
         print(f"Error in chunked transcription: {e}")
         return model.transcribe(audio_file)
 
+
 def normalize_audio_rms(audio_data, target_rms=0.2):
     """
     Normalize audio volume using RMS (Root Mean Square) for better Whisper recognition.
-    
+
     Args:
         audio_data: Audio data as bytes
         target_rms: Target RMS level (0.0 to 1.0)
-    
+
     Returns:
         Normalized audio data as bytes
     """
@@ -234,7 +310,7 @@ def normalize_audio_rms(audio_data, target_rms=0.2):
         audio_array = np.frombuffer(audio_data, dtype=np.int16)
 
         # Calculate current RMS
-        current_rms = np.sqrt(np.mean(audio_array.astype(np.float32)**2))
+        current_rms = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
 
         if current_rms > 0:
             # Calculate scaling factor
@@ -255,13 +331,14 @@ def normalize_audio_rms(audio_data, target_rms=0.2):
         print(f"Warning: Audio normalization failed: {e}")
         return audio_data
 
+
 def apply_automatic_gain_control(audio_data):
     """
     Apply basic automatic gain control to improve consistency across microphones.
-    
+
     Args:
         audio_data: Audio data as bytes
-    
+
     Returns:
         Audio data with AGC applied
     """
@@ -276,7 +353,9 @@ def apply_automatic_gain_control(audio_data):
 
         if peak > 0:
             # Apply gentle compression - reduce dynamic range
-            compressed = np.sign(audio_array) * np.power(np.abs(audio_array) / peak, 0.7) * peak
+            compressed = (
+                np.sign(audio_array) * np.power(np.abs(audio_array) / peak, 0.7) * peak
+            )
 
             # Apply mild gain boost for quiet speech
             gain_factor = min(2.0, 16000 / (peak + 1))
@@ -295,6 +374,7 @@ def apply_automatic_gain_control(audio_data):
     except Exception as e:
         print(f"Warning: AGC failed: {e}")
         return audio_data
+
 
 def grabar_y_reconocer_con_whisper(max_duration=60):
     """
@@ -315,7 +395,9 @@ def grabar_y_reconocer_con_whisper(max_duration=60):
 
         # Escuchar con timeout y tiempo mínimo de frase
         try:
-            audio = recognizer.listen(source, timeout=max_duration, phrase_time_limit=max_duration)
+            audio = recognizer.listen(
+                source, timeout=max_duration, phrase_time_limit=max_duration
+            )
         except sr.WaitTimeoutError:
             print("No se detectó ningún sonido. Intenta de nuevo.")
             return None, None
@@ -347,23 +429,25 @@ def grabar_y_reconocer_con_whisper(max_duration=60):
 
         # Validar que el texto y el idioma sean válidos
         if not validar_idioma_whisper(texto_transcrito, idioma_detectado):
-            print(f"Se detectó texto en idioma no soportado ({idioma_detectado}) o con caracteres inválidos. Intenta de nuevo.")
+            print(
+                f"Se detectó texto en idioma no soportado ({idioma_detectado}) o con caracteres inválidos. Intenta de nuevo."
+            )
             return None, None
 
         # Mapear códigos de idioma de Whisper a nuestros códigos
         whisper_to_code = {
-            'spanish': 'es',
-            'english': 'en',
-            'german': 'de',
-            'french': 'fr',
-            'italian': 'it',
-            'portuguese': 'pt'
+            "spanish": "es",
+            "english": "en",
+            "german": "de",
+            "french": "fr",
+            "italian": "it",
+            "portuguese": "pt",
         }
 
         idioma_final = whisper_to_code.get(idioma_detectado, idioma_detectado)
 
         # Si no se pudo mapear y estamos en auto-detect, usar función de detección
-        if auto_detect and idioma_final not in ['es', 'en']:
+        if auto_detect and idioma_final not in ["es", "en"]:
             idioma_final = detectar_idioma(texto_transcrito)
             if idioma_final is None:
                 print("No se pudo determinar el idioma del texto. Intenta de nuevo.")
@@ -394,6 +478,7 @@ def grabar_y_reconocer_con_whisper(max_duration=60):
         except:
             pass
 
+
 def grabar_y_reconocer_fallback(audio):
     """
     Función de fallback que usa Google Speech Recognition si Whisper falla.
@@ -415,19 +500,19 @@ def grabar_y_reconocer_fallback(audio):
                 print("Texto no reconocido como español o inglés.")
                 return None, None
             elif idioma_detectado_es is None:
-                texto_final, idioma_final = texto_en, 'en'
+                texto_final, idioma_final = texto_en, "en"
             elif idioma_detectado_en is None:
-                texto_final, idioma_final = texto_es, 'es'
-            elif idioma_detectado_es == 'es' and idioma_detectado_en == 'en':
+                texto_final, idioma_final = texto_es, "es"
+            elif idioma_detectado_es == "es" and idioma_detectado_en == "en":
                 # Ambos son consistentes, elegir el más largo (más probable)
                 if len(texto_es.split()) >= len(texto_en.split()):
-                    texto_final, idioma_final = texto_es, 'es'
+                    texto_final, idioma_final = texto_es, "es"
                 else:
-                    texto_final, idioma_final = texto_en, 'en'
-            elif idioma_detectado_es == 'es':
-                texto_final, idioma_final = texto_es, 'es'
+                    texto_final, idioma_final = texto_en, "en"
+            elif idioma_detectado_es == "es":
+                texto_final, idioma_final = texto_es, "es"
             else:
-                texto_final, idioma_final = texto_en, 'en'
+                texto_final, idioma_final = texto_en, "en"
 
         except:
             idioma_fallback = detectar_idioma(texto_es)
@@ -446,6 +531,7 @@ def grabar_y_reconocer_fallback(audio):
         print(f"Error con el servicio de reconocimiento de voz; {e}")
         return None, None
 
+
 def traducir_texto(texto_a_traducir, idioma_origen):
     """
     Traduce texto usando LazyModelLoader.
@@ -458,10 +544,10 @@ def traducir_texto(texto_a_traducir, idioma_origen):
         # Determinar dirección de traducción
         if auto_detect:
             # En modo auto-detect, usar el idioma detectado para determinar el idioma de destino
-            if idioma_origen == 'es':
-                idioma_destino = 'en'
+            if idioma_origen == "es":
+                idioma_destino = "en"
             else:
-                idioma_destino = 'es'
+                idioma_destino = "es"
         else:
             # En modo manual, usar los idiomas especificados por CLI
             if idioma_origen == src_lang:
@@ -474,12 +560,14 @@ def traducir_texto(texto_a_traducir, idioma_origen):
         translator = model_loader.get_model(idioma_origen, idioma_destino)
 
         if translator is None:
-            print(f"No hay modelo disponible para traducir de {idioma_origen} a {idioma_destino}")
+            print(
+                f"No hay modelo disponible para traducir de {idioma_origen} a {idioma_destino}"
+            )
             return None, None
 
         print(f"Traduciendo de {idioma_origen} a {idioma_destino}...")
         resultado = translator(texto_a_traducir)
-        texto_traducido = resultado[0]['translation_text']
+        texto_traducido = resultado[0]["translation_text"]
         print(f"Texto traducido: '{texto_traducido}'")
         return texto_traducido, idioma_destino
 
@@ -487,7 +575,8 @@ def traducir_texto(texto_a_traducir, idioma_origen):
         print(f"Ocurrió un error durante la traducción: {e}")
         return None, None
 
-def hablar_texto(texto_a_hablar, idioma='en'):
+
+def hablar_texto(texto_a_hablar, idioma="en"):
     """
     Sintetiza y reproduce texto con la TTS unificada.
     """
@@ -505,141 +594,138 @@ def hablar_texto(texto_a_hablar, idioma='en'):
     except Exception as e:
         print(f"Ocurrió un error al reproducir el audio: {e}")
 
+
 def parse_cli_args():
     """
     Parse command line arguments for the translator.
     """
     parser = argparse.ArgumentParser(
-        description='Traductor IA Personal con Whisper y LazyModelLoader',
+        description="Traductor IA Personal con Whisper y LazyModelLoader",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
+        epilog="""
 Examples:
   # Auto-detection mode (default)
   python main_whisper.py --auto
-  
+
   # Specific language pair
   python main_whisper.py --src_lang es --tgt_lang en
-  
+
   # With preloading
   python main_whisper.py --src_lang en --tgt_lang es --preload
-  
+
   # Preload models for multiple languages
   python main_whisper.py --auto --preload
-  '''
+  """,
     )
 
     # Language configuration
     lang_group = parser.add_mutually_exclusive_group(required=False)
     lang_group.add_argument(
-        '--auto',
-        action='store_true',
+        "--auto",
+        action="store_true",
         default=True,
-        help='Auto-detect language mode (default). Supports es<->en translation.'
+        help="Auto-detect language mode (default). Supports es<->en translation.",
     )
 
     lang_group.add_argument(
-        '--src_lang',
-        type=str,
-        help='Source language code (e.g., es, en, de, fr)'
+        "--src_lang", type=str, help="Source language code (e.g., es, en, de, fr)"
     )
 
     parser.add_argument(
-        '--tgt_lang',
+        "--tgt_lang",
         type=str,
-        help='Target language code (e.g., es, en, de, fr). Required when --src_lang is specified.'
+        help="Target language code (e.g., es, en, de, fr). Required when --src_lang is specified.",
     )
 
     # Model configuration
     parser.add_argument(
-        '--whisper_model',
+        "--whisper_model",
         type=str,
-        default='base',
-        choices=['base', 'small', 'medium', 'large'],
-        help='Whisper model size (default: base)'
+        default="base",
+        choices=["base", "small", "medium", "large"],
+        help="Whisper model size (default: base)",
     )
 
     parser.add_argument(
-        '--cache_dir',
+        "--cache_dir",
         type=str,
-        default='./model_cache',
-        help='Directory to cache models (default: ./model_cache)'
+        default="./model_cache",
+        help="Directory to cache models (default: ./model_cache)",
     )
 
     # Preloading options
     parser.add_argument(
-        '--preload',
-        action='store_true',
-        help='Preload translation models at startup'
+        "--preload", action="store_true", help="Preload translation models at startup"
     )
 
     parser.add_argument(
-        '--preload_languages',
+        "--preload_languages",
         type=str,
-        nargs='*',
-        default=['es', 'en'],
-        help='Languages to preload models for (default: es en)'
+        nargs="*",
+        default=["es", "en"],
+        help="Languages to preload models for (default: es en)",
     )
 
     parser.add_argument(
-        '--max_duration',
+        "--max_duration",
         type=int,
         default=60,
-        help='Maximum recording duration in seconds (default: 60)'
+        help="Maximum recording duration in seconds (default: 60)",
     )
 
     # Silence detection parameters
     parser.add_argument(
-        '--silence-detection',
-        action='store_true',
-        help='Enable silence detection for auto-stopping transcription'
+        "--silence-detection",
+        action="store_true",
+        help="Enable silence detection for auto-stopping transcription",
     )
 
     parser.add_argument(
-        '--silence-preset',
+        "--silence-preset",
         type=str,
-        default='balanced',
-        choices=['sensitive', 'balanced', 'aggressive', 'very_aggressive'],
-        help='Silence detection preset (default: balanced)'
+        default="balanced",
+        choices=["sensitive", "balanced", "aggressive", "very_aggressive"],
+        help="Silence detection preset (default: balanced)",
     )
 
     parser.add_argument(
-        '--min-silence-len',
+        "--min-silence-len",
         type=int,
         default=800,
-        help='Minimum silence duration in ms to trigger auto-stop (default: 800)'
+        help="Minimum silence duration in ms to trigger auto-stop (default: 800)",
     )
 
     parser.add_argument(
-        '--silence-thresh',
+        "--silence-thresh",
         type=int,
         default=-40,
-        help='Silence threshold in dBFS (default: -40)'
+        help="Silence threshold in dBFS (default: -40)",
     )
 
     parser.add_argument(
-        '--silence-method',
+        "--silence-method",
         type=str,
-        default='auto',
-        choices=['auto', 'webrtcvad', 'pydub'],
-        help='Silence detection method (default: auto)'
+        default="auto",
+        choices=["auto", "webrtcvad", "pydub"],
+        help="Silence detection method (default: auto)",
     )
 
     parser.add_argument(
-        '--vad-aggressiveness',
+        "--vad-aggressiveness",
         type=int,
         default=2,
         choices=[0, 1, 2, 3],
-        help='WebRTC VAD aggressiveness level (0-3, default: 2)'
+        help="WebRTC VAD aggressiveness level (0-3, default: 2)",
     )
 
     args = parser.parse_args()
 
     # Validation
     if args.src_lang and not args.tgt_lang:
-        parser.error('--tgt_lang is required when --src_lang is specified')
+        parser.error("--tgt_lang is required when --src_lang is specified")
 
     if args.tgt_lang and not args.src_lang:
-        parser.error('--src_lang is required when --tgt_lang is specified')
+        parser.error("--src_lang is required when --tgt_lang is specified")
 
     # If src_lang and tgt_lang are specified, disable auto mode
     if args.src_lang and args.tgt_lang:
@@ -647,11 +733,19 @@ Examples:
 
     return args
 
+
 def init_models(args):
     """
     Initialize models based on CLI arguments.
     """
-    global model_loader, whisper_model, src_lang, tgt_lang, auto_detect, silence_detector, silence_integration
+    global \
+        model_loader, \
+        whisper_model, \
+        src_lang, \
+        tgt_lang, \
+        auto_detect, \
+        silence_detector, \
+        silence_integration
 
     # Set global variables
     src_lang = args.src_lang
@@ -663,7 +757,6 @@ def init_models(args):
     model_loader = LazyModelLoader(cache_dir=args.cache_dir)
 
     # Progress callback for model loading with timing
-    import time
     model_start_times = {}
 
     def progress_callback(message, progress):
@@ -710,7 +803,9 @@ def init_models(args):
             print(f"Preloaded {success_count}/{total_count} translation models")
 
             if success_count < total_count:
-                failed_models = [pair for pair, success in results.items() if not success]
+                failed_models = [
+                    pair for pair, success in results.items() if not success
+                ]
                 print(f"Failed to load: {', '.join(failed_models)}")
         else:
             # In manual mode, preload specific model
@@ -735,14 +830,20 @@ def init_models(args):
                 min_silence_len=args.min_silence_len,
                 silence_thresh=args.silence_thresh,
                 method=args.silence_method,
-                aggressiveness=args.vad_aggressiveness
+                aggressiveness=args.vad_aggressiveness,
             )
 
             # Create integration helper
-            silence_integration = SilenceDetectorIntegration(recognizer, silence_detector)
+            silence_integration = SilenceDetectorIntegration(
+                recognizer, silence_detector
+            )
 
-            print(f"Detector de silencio inicializado: {silence_detector.active_method}")
-            print(f"Configuración: min_silence_len={args.min_silence_len}ms, threshold={args.silence_thresh}dBFS")
+            print(
+                f"Detector de silencio inicializado: {silence_detector.active_method}"
+            )
+            print(
+                f"Configuración: min_silence_len={args.min_silence_len}ms, threshold={args.silence_thresh}dBFS"
+            )
         except Exception as e:
             print(f"Advertencia: No se pudo inicializar el detector de silencio: {e}")
             print("Continuando sin detección de silencio...")
@@ -772,7 +873,7 @@ def init_models(args):
         print(f"Preset: {args.silence_preset}")
         print(f"Umbral mínimo de silencio: {args.min_silence_len}ms")
         print(f"Umbral de nivel de audio: {args.silence_thresh}dBFS")
-        if silence_detector.active_method == 'webrtcvad':
+        if silence_detector.active_method == "webrtcvad":
             print(f"Agresividad VAD: {args.vad_aggressiveness}")
     else:
         print("\nDetección de silencio: DESACTIVADA")
@@ -781,7 +882,7 @@ def init_models(args):
     pairs = model_loader.get_supported_language_pairs()
     print(f"\nPares de idiomas disponibles ({len(pairs)}):")
     for i, (src, tgt) in enumerate(pairs):
-        print(f"  {src} -> {tgt}", end='')
+        print(f"  {src} -> {tgt}", end="")
         if (i + 1) % 4 == 0:
             print()  # New line every 4 pairs
     if len(pairs) % 4 != 0:
@@ -794,7 +895,9 @@ def init_models(args):
 
 if __name__ == "__main__":
     print("=== Traductor IA Personal con Whisper ===")
-    print("Versión mejorada con reconocimiento de voz offline usando Whisper y LazyModelLoader")
+    print(
+        "Versión mejorada con reconocimiento de voz offline usando Whisper y LazyModelLoader"
+    )
 
     # Parse command line arguments
     args = parse_cli_args()
@@ -804,7 +907,9 @@ if __name__ == "__main__":
 
     # Start main loop
     if auto_detect:
-        print("Habla en cualquier idioma soportado y el programa lo traducirá automáticamente.")
+        print(
+            "Habla en cualquier idioma soportado y el programa lo traducirá automáticamente."
+        )
     else:
         print(f"Habla en {src_lang} y será traducido a {tgt_lang}.")
 
@@ -813,13 +918,17 @@ if __name__ == "__main__":
     try:
         while True:
             # Paso 1: Escuchar y transcribir con Whisper
-            texto_original, idioma_origen = grabar_y_reconocer_con_whisper(args.max_duration)
+            texto_original, idioma_origen = grabar_y_reconocer_con_whisper(
+                args.max_duration
+            )
 
             if texto_original is None:
                 continue
 
             # Paso 2: Traducir el texto
-            texto_traducido, idioma_destino = traducir_texto(texto_original, idioma_origen)
+            texto_traducido, idioma_destino = traducir_texto(
+                texto_original, idioma_origen
+            )
 
             if texto_traducido is None:
                 continue

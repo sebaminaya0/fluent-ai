@@ -21,7 +21,6 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -43,10 +42,10 @@ class BaselineResult:
     output_samples: int
     metrics: StageMetrics
     ok: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
-def _try_record(seconds: int) -> Optional[Path]:
+def _try_record(seconds: int) -> Path | None:
     try:
         import sounddevice as sd
     except Exception as e:
@@ -55,7 +54,9 @@ def _try_record(seconds: int) -> Optional[Path]:
     out = Path("/tmp/fluent_baseline.wav")
     try:
         print(f"Recording {seconds}s from default mic...")
-        audio = sd.rec(int(seconds * 16000), samplerate=16000, channels=1, dtype="float32")
+        audio = sd.rec(
+            int(seconds * 16000), samplerate=16000, channels=1, dtype="float32"
+        )
         sd.wait()
         if np.max(np.abs(audio)) < 1e-4:
             print("Recording looks silent; skipping.")
@@ -96,15 +97,23 @@ def _read_audio(path: Path):
     return audio, sr
 
 
-def measure(path: Path, src_lang: str, dst_lang: str, whisper_model: str, timeout: float = 90) -> BaselineResult:
+def measure(
+    path: Path, src_lang: str, dst_lang: str, whisper_model: str, timeout: float = 90
+) -> BaselineResult:
     try:
         q_in: queue.Queue[dict] = queue.Queue()
         q_out: queue.Queue[np.ndarray] = queue.Queue()
 
-        from fluentai.asr_translation_synthesis_thread import ASRTranslationSynthesisThread
+        from fluentai.asr_translation_synthesis_thread import (
+            ASRTranslationSynthesisThread,
+        )
 
         thread = ASRTranslationSynthesisThread(
-            q_in, q_out, src_lang=src_lang, dst_lang=dst_lang, whisper_model=whisper_model
+            q_in,
+            q_out,
+            src_lang=src_lang,
+            dst_lang=dst_lang,
+            whisper_model=whisper_model,
         )
         thread.start()
 
@@ -117,27 +126,70 @@ def measure(path: Path, src_lang: str, dst_lang: str, whisper_model: str, timeou
             now = time.perf_counter()
             metrics.total_ms = (now - t0) * 1000.0
             if item is None or not isinstance(item, np.ndarray):
-                return BaselineResult(file=path.name, output_samples=0, metrics=metrics, ok=False, error="Invalid output")
+                return BaselineResult(
+                    file=path.name,
+                    output_samples=0,
+                    metrics=metrics,
+                    ok=False,
+                    error="Invalid output",
+                )
             if len(item) == 0:
-                return BaselineResult(file=path.name, output_samples=0, metrics=metrics, ok=False, error="Empty output")
+                return BaselineResult(
+                    file=path.name,
+                    output_samples=0,
+                    metrics=metrics,
+                    ok=False,
+                    error="Empty output",
+                )
             if not np.isfinite(item).all():
-                return BaselineResult(file=path.name, output_samples=int(len(item)), metrics=metrics, ok=False, error="Non-finite samples")
+                return BaselineResult(
+                    file=path.name,
+                    output_samples=int(len(item)),
+                    metrics=metrics,
+                    ok=False,
+                    error="Non-finite samples",
+                )
             peak = float(np.max(np.abs(item)))
             if peak > 1.0:
-                return BaselineResult(file=path.name, output_samples=int(len(item)), metrics=metrics, ok=False, error=f"Unnormalized peak {peak}")
-            return BaselineResult(file=path.name, output_samples=int(len(item)), metrics=metrics, ok=True)
+                return BaselineResult(
+                    file=path.name,
+                    output_samples=int(len(item)),
+                    metrics=metrics,
+                    ok=False,
+                    error=f"Unnormalized peak {peak}",
+                )
+            return BaselineResult(
+                file=path.name, output_samples=int(len(item)), metrics=metrics, ok=True
+            )
         except queue.Empty:
-            return BaselineResult(file=path.name, output_samples=0, metrics=metrics, ok=False, error="Timeout waiting for output")
+            return BaselineResult(
+                file=path.name,
+                output_samples=0,
+                metrics=metrics,
+                ok=False,
+                error="Timeout waiting for output",
+            )
         finally:
             thread.stop()
             thread.join(timeout=15)
     except Exception as e:
-        return BaselineResult(file=path.name if path else "", output_samples=0, metrics=StageMetrics(), ok=False, error=str(e))
+        return BaselineResult(
+            file=path.name if path else "",
+            output_samples=0,
+            metrics=StageMetrics(),
+            ok=False,
+            error=str(e),
+        )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--record", type=int, default=0, help="Record N seconds of real audio as baseline")
+    parser.add_argument(
+        "--record",
+        type=int,
+        default=0,
+        help="Record N seconds of real audio as baseline",
+    )
     parser.add_argument("--file", type=str, default="", help="Use specific WAV file")
     parser.add_argument("--src", type=str, default="es")
     parser.add_argument("--dst", type=str, default="en")
