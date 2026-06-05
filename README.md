@@ -249,14 +249,28 @@ fluent-ai/
 │   ├── blackhole_reproduction_thread.py     # BlackHole audio playback thread
 │   └── __init__.py
 ├── silence_detector.py           # Advanced silence detection module
-├── translation_logs.duckdb       # DuckDB database file (created after first run)
-├── README_DATABASE.md            # Database system documentation
+├── translation_logs.duckdb       # DuckDB database file (runtime artifact, gitignored)
+├── docs/                         # Setup, usage, architecture & feature guides
 ├── pyproject.toml               # Python dependencies
 ├── uv.lock                      # Lock file with exact versions
 ├── .gitignore                   # Git ignore rules
 ├── .python-version              # Python version specification
 └── README.md                    # This file
 ```
+
+## 📚 Documentation
+
+Detailed guides live in [`docs/`](./docs/):
+
+- [Usage guide](./docs/USAGE.md) — running the app and meeting setup
+- [Architecture](./docs/architecture.md) — pipeline and threading design
+- [Database logging](./docs/database-logging.md) — DuckDB schema and analytics
+- [BlackHole setup](./docs/blackhole-setup.md) — virtual audio device configuration
+- [Silence detection](./docs/silence-detection.md) — VAD presets and tuning
+- [Meeting testing](./docs/meeting-testing.md) — verifying translated audio in calls
+- [Demo recording](./docs/DEMO_RECORDING.md) — producing demo videos
+
+For contributors and AI assistants, see [`CLAUDE.md`](./CLAUDE.md).
 
 ## 🔮 Future Enhancements
 
