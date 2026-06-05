@@ -19,7 +19,7 @@ This file provides guidance for AI assistants (Claude, Copilot, etc.) working on
 
 ```
 fluent-ai/
-├── gui_app.py                  # Main GUI entry point (Tkinter, ~1,745 lines — God class, slated for decomposition)
+├── gui_app.py                  # Main GUI (Tkinter, ~1,460 lines; delegates to TranslationController + fluentai/ui)
 ├── main_whisper.py             # CLI entry point — Whisper ASR (~780 lines)
 ├── live_monitor.py             # Real-time monitor dashboard (--db enables DuckDB logging)
 ├── audio_capture_thread.py     # Continuous mic capture + WebRTC VAD
@@ -31,8 +31,14 @@ fluent-ai/
 │   ├── __init__.py             # Exports LazyModelLoader
 │   ├── model_loader.py         # Lazy-loading, LRU-cached model manager
 │   ├── database_logger.py      # DuckDB logging (sessions, steps, latency)
+│   ├── audio_utils.py          # Shared 16-bit PCM DSP (RMS normalize, AGC)
+│   ├── transcription.py        # Shared chunked Whisper transcription
+│   ├── app_controller.py       # Non-UI translation + text/language helpers
+│   ├── tts_engine.py           # Text-to-speech synthesis to numpy
 │   ├── asr_translation_synthesis_thread.py  # ASR → Translation → TTS thread
 │   ├── blackhole_reproduction_thread.py     # Audio output thread (jitter buffer)
+│   ├── ui/
+│   │   └── meeting_overlay.py  # Floating Meeting Mode overlay widget
 │   └── cli/
 │       ├── translate_rt.py     # Real-time translation CLI (multi-threaded)
 │       └── README.md
