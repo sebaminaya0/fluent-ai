@@ -16,6 +16,7 @@ from fluentai.audio_utils import (
     apply_automatic_gain_control,
     normalize_audio_rms,
 )
+from fluentai.transcription import transcribe_long_audio
 from fluentai.tts_engine import synthesize_to_numpy
 from silence_detector import (
     SilenceDetectorIntegration,
@@ -208,90 +209,6 @@ def detectar_idioma(texto):
             return "es"  # Por defecto español
 
 
-def transcribe_long_audio(audio_file, model, chunk_length=30):
-    """
-    Transcribe audio files in chunks to handle long recordings efficiently.
-
-    Args:
-        audio_file: Path to the audio file
-        model: Whisper model instance
-        chunk_length: Length of each chunk in seconds (default: 30)
-
-    Returns:
-        Combined transcription result
-    """
-    import librosa
-
-    try:
-        # Load audio file
-        audio, sr = librosa.load(audio_file, sr=16000)
-        audio_duration = len(audio) / sr
-
-        print(f"Audio duration: {audio_duration:.2f} seconds")
-
-        # If audio is short enough, process normally
-        if audio_duration <= chunk_length:
-            return model.transcribe(audio_file)
-
-        # Process in chunks for long audio
-        chunk_size = chunk_length * sr  # Convert to samples
-        chunks = []
-        texts = []
-
-        for i in range(0, len(audio), chunk_size):
-            chunk = audio[i : i + chunk_size]
-            chunks.append(chunk)
-
-            # Create temporary file for this chunk
-            import tempfile
-
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_chunk:
-                chunk_filename = temp_chunk.name
-
-                # Write chunk to temporary file
-                import soundfile as sf
-
-                sf.write(chunk_filename, chunk, sr)
-
-                try:
-                    # Transcribe chunk
-                    chunk_result = model.transcribe(chunk_filename)
-                    texts.append(chunk_result["text"])
-                    print(f"Chunk {len(texts)}: '{chunk_result['text']}'")
-
-                finally:
-                    # Clean up chunk file
-                    try:
-                        os.unlink(chunk_filename)
-                    except Exception:
-                        pass
-
-        # Combine results
-        combined_text = " ".join(texts).strip()
-
-        # Return result in same format as regular transcribe
-        # Use the language from the first non-empty chunk
-        language = "es"  # Default
-        try:
-            first_chunk_result = model.transcribe(audio_file, language=None)
-            language = first_chunk_result["language"]
-        except Exception:
-            pass
-
-        return {
-            "text": combined_text,
-            "language": language,
-            "segments": [],  # Could be enhanced to combine segments
-        }
-
-    except ImportError:
-        print("Warning: librosa not available, falling back to regular transcription")
-        return model.transcribe(audio_file)
-    except Exception as e:
-        print(f"Error in chunked transcription: {e}")
-        return model.transcribe(audio_file)
-
-
 def grabar_y_reconocer_con_whisper(max_duration=60):
     """
     Captura audio del micrófono y lo transcribe usando Whisper.
@@ -339,7 +256,7 @@ def grabar_y_reconocer_con_whisper(max_duration=60):
         print("Reconociendo tu voz con Whisper...")
 
         # Transcribir usando Whisper con procesamiento por segmentos
-        result = transcribe_long_audio(temp_filename, whisper_model)
+        result = transcribe_long_audio(whisper_model, temp_filename)
         texto_transcrito = result["text"].strip()
         idioma_detectado = result["language"]
 

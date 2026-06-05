@@ -15,6 +15,7 @@ from fluentai.asr_translation_synthesis_thread import ASRTranslationSynthesisThr
 from fluentai.audio_utils import apply_automatic_gain_control, normalize_audio_rms
 from fluentai.blackhole_reproduction_thread import BlackHoleReproductionThread
 from fluentai.model_loader import LazyModelLoader
+from fluentai.transcription import transcribe_long_audio
 from fluentai.tts_engine import synthesize_to_numpy
 from silence_detector import (
     SilenceDetectorIntegration,
@@ -776,7 +777,18 @@ class FluentAIGUI:
             print("Iniciando transcripción con Whisper...")
             print(f"Idioma seleccionado por usuario: {src_lang}")
 
-            result = self.transcribe_long_audio_gui(temp_filename, src_lang)
+            result = transcribe_long_audio(
+                self.current_whisper_model,
+                temp_filename,
+                language=None if src_lang == "auto" else src_lang,
+                min_duration=0.5,
+                transcribe_options={
+                    "word_timestamps": True,
+                    "fp16": False,
+                    "temperature": 0.0,
+                    "condition_on_previous_text": True,
+                },
+            )
 
             print("\nResultado completo de Whisper:")
             print(f"- Texto: '{result['text']}'")
@@ -828,165 +840,6 @@ class FluentAIGUI:
             traceback.print_exc()
             print("=== FIN DE PROCESO WHISPER (ERROR) ===\n")
             return None, None
-
-    def transcribe_long_audio_gui(self, audio_file, source_code, chunk_length=30):
-        """
-        Transcribe audio files in chunks for GUI version.
-
-        Args:
-            audio_file: Path to the audio file
-            source_code: Language code or 'auto' for auto-detection
-            chunk_length: Length of each chunk in seconds (default: 30)
-
-        Returns:
-            Combined transcription result
-        """
-        try:
-            # Try to use librosa for chunked processing
-            import librosa
-
-            # Load audio file
-            audio, sr = librosa.load(audio_file, sr=16000)
-            audio_duration = len(audio) / sr
-
-            print(f"Audio duration: {audio_duration:.2f} seconds")
-
-            # Skip transcription if audio is too short for Whisper to process
-            if audio_duration < 0.5:
-                print(
-                    f"Audio too short ({audio_duration:.2f}s), skipping transcription"
-                )
-                return {
-                    "text": "",
-                    "language": source_code if source_code != "auto" else "es",
-                    "segments": [],
-                }
-
-            # If audio is short enough, process normally
-            # Note: best_of is for sampling (temperature > 0), not compatible with beam_size at temperature=0
-            if audio_duration <= chunk_length:
-                if source_code != "auto":
-                    return self.current_whisper_model.transcribe(
-                        audio_file,
-                        language=source_code,
-                        word_timestamps=True,
-                        fp16=False,
-                        temperature=0.0,
-                        condition_on_previous_text=True,
-                    )
-                else:
-                    return self.current_whisper_model.transcribe(
-                        audio_file,
-                        word_timestamps=True,
-                        fp16=False,
-                        temperature=0.0,
-                        condition_on_previous_text=True,
-                    )
-
-            # Process in chunks for long audio
-            chunk_size = chunk_length * sr  # Convert to samples
-            chunks = []
-            texts = []
-
-            for i in range(0, len(audio), chunk_size):
-                chunk = audio[i : i + chunk_size]
-                chunks.append(chunk)
-
-                # Create temporary file for this chunk
-                with tempfile.NamedTemporaryFile(
-                    suffix=".wav", delete=False
-                ) as temp_chunk:
-                    chunk_filename = temp_chunk.name
-
-                    # Write chunk to temporary file
-                    import soundfile as sf
-
-                    sf.write(chunk_filename, chunk, sr)
-
-                    try:
-                        # Transcribe chunk
-                        if source_code != "auto":
-                            chunk_result = self.current_whisper_model.transcribe(
-                                chunk_filename, language=source_code
-                            )
-                        else:
-                            chunk_result = self.current_whisper_model.transcribe(
-                                chunk_filename
-                            )
-
-                        texts.append(chunk_result["text"])
-                        print(f"Chunk {len(texts)}: '{chunk_result['text']}'")
-
-                    finally:
-                        # Clean up chunk file
-                        try:
-                            os.unlink(chunk_filename)
-                        except Exception:
-                            pass
-
-            # Combine results
-            combined_text = " ".join(texts).strip()
-
-            # Return result in same format as regular transcribe
-            # Use the language from the first non-empty chunk
-            language = "es"  # Default
-            try:
-                if source_code != "auto":
-                    language = source_code
-                else:
-                    first_chunk_result = self.current_whisper_model.transcribe(
-                        audio_file, language=None
-                    )
-                    language = first_chunk_result["language"]
-            except Exception:
-                pass
-
-            return {
-                "text": combined_text,
-                "language": language,
-                "segments": [],  # Could be enhanced to combine segments
-            }
-
-        except ImportError:
-            print(
-                "Warning: librosa not available, falling back to regular transcription"
-            )
-            if source_code != "auto":
-                return self.current_whisper_model.transcribe(
-                    audio_file,
-                    language=source_code,
-                    word_timestamps=True,
-                    fp16=False,
-                    temperature=0.0,
-                    condition_on_previous_text=True,
-                )
-            else:
-                return self.current_whisper_model.transcribe(
-                    audio_file,
-                    word_timestamps=True,
-                    fp16=False,
-                    temperature=0.0,
-                    condition_on_previous_text=True,
-                )
-        except Exception as e:
-            print(f"Error in chunked transcription: {e}")
-            if source_code != "auto":
-                return self.current_whisper_model.transcribe(
-                    audio_file,
-                    language=source_code,
-                    word_timestamps=True,
-                    fp16=False,
-                    temperature=0.0,
-                    condition_on_previous_text=True,
-                )
-            else:
-                return self.current_whisper_model.transcribe(
-                    audio_file,
-                    word_timestamps=True,
-                    fp16=False,
-                    temperature=0.0,
-                    condition_on_previous_text=True,
-                )
 
     def validate_text(self, texto, idioma_detectado):
         """Valida que el texto sea válido para los idiomas soportados"""
