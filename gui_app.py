@@ -15,8 +15,9 @@ from audio_capture_thread import AudioCaptureThread
 from fluentai.app_controller import TranslationController
 from fluentai.audio_utils import apply_automatic_gain_control, normalize_audio_rms
 from fluentai.blackhole_reproduction_thread import BlackHoleReproductionThread
-from fluentai.meeting_pipeline import MeetingASRThread, MeetingSpeakThread
+from fluentai.meeting_pipeline import MeetingSpeakThread
 from fluentai.model_loader import LazyModelLoader
+from fluentai.streaming_asr import StreamingTranscriber
 from fluentai.transcription import transcribe_long_audio
 from fluentai.tts_engine import synthesize_to_numpy
 from fluentai.ui.meeting_overlay import MeetingOverlay
@@ -109,7 +110,7 @@ class FluentAIGUI:
         # Meeting Mode state
         self.meeting_mode_active = False
         self.meeting_capture_thread: AudioCaptureThread | None = None
-        self.meeting_asr_thread: MeetingASRThread | None = None
+        self.meeting_asr_thread: StreamingTranscriber | None = None
         self.meeting_speak_thread: MeetingSpeakThread | None = None
         self.meeting_asr_queue: queue.Queue | None = None
         self.meeting_speak_queue: queue.Queue | None = None
@@ -959,6 +960,22 @@ class FluentAIGUI:
                 elif message_type == "translated_text":
                     self.translated_text.delete(1.0, tk.END)
                     self.translated_text.insert(tk.END, args[0])
+                elif message_type == "meeting_caption":
+                    # Live streaming caption: committed text + greyed tentative.
+                    committed, tentative = args[0], args[1]
+                    self.original_text.delete(1.0, tk.END)
+                    self.original_text.insert(tk.END, committed)
+                    if tentative:
+                        self.original_text.insert(
+                            tk.END,
+                            (" " if committed else "") + tentative,
+                            "tentative",
+                        )
+                    self.original_text.tag_config("tentative", foreground="#999999")
+                    self.original_text.see(tk.END)
+                elif message_type == "meeting_translation_append":
+                    self.translated_text.insert(tk.END, args[0] + " ")
+                    self.translated_text.see(tk.END)
                 elif message_type == "reset_record_btn":
                     self.record_btn.config(text="🎤 Hablar", bg="#2ecc71")
                 elif message_type == "spinner":
@@ -1336,38 +1353,43 @@ class FluentAIGUI:
         src_lang, dst_lang = self.get_source_and_target_from_direction()
         device_name = self.meeting_output_device_var.get()
 
-        # Streaming pipeline: capture -> ASR/translate stage -> speak stage.
-        # The speak stage streams `say` straight to the output device, and the
-        # ASR stage works on the next utterance while the current one plays.
+        # A virtual output (BlackHole) can't feed back into the mic, so we can
+        # run full-duplex (keep listening while speaking) for streaming. A
+        # physical device needs the half-duplex mute to avoid the echo loop.
+        selected = next(
+            (d for d in self._meeting_device_list if d["name"] == device_name), None
+        )
+        is_virtual = bool(selected and selected["is_blackhole"])
+        mute_event = None if is_virtual else threading.Event()
+        self.meeting_mute_event = mute_event
+
+        # Streaming pipeline: capture (with live partials) -> StreamingTranscriber
+        # (live captions + per-sentence translate) -> speak stage.
         self.meeting_asr_queue = queue.Queue()
         self.meeting_speak_queue = queue.Queue()
-        # Shared half-duplex gate: held while the translation plays so the mic
-        # ignores our own TTS output (prevents the feedback/echo loop).
-        self.meeting_mute_event = threading.Event()
 
         self.meeting_capture_thread = AudioCaptureThread(
             asr_queue=self.meeting_asr_queue,
-            # Wait for a real sentence-end pause (not every 200ms gap) so
-            # utterances stay whole -> better transcription and translation.
             silence_threshold_ms=700,
-            mute_event=self.meeting_mute_event,
+            mute_event=mute_event,
+            # Emit growing snapshots so captions stream as you speak.
+            partial_interval_ms=700,
         )
-        self.meeting_asr_thread = MeetingASRThread(
+        self.meeting_asr_thread = StreamingTranscriber(
             asr_queue=self.meeting_asr_queue,
             speak_queue=self.meeting_speak_queue,
             controller=self.controller,
             src_lang=src_lang,
             dst_lang=dst_lang,
-            # 'small' is markedly more accurate (and punctuates) vs 'base',
-            # still ~0.5s on Apple Silicon.
             whisper_model="small",
+            on_partial=self._on_meeting_partial,
         )
         self.meeting_speak_thread = MeetingSpeakThread(
             speak_queue=self.meeting_speak_queue,
             device_name=device_name,
             dst_lang=dst_lang,
             callback=self._on_meeting_translation_result,
-            mute_event=self.meeting_mute_event,
+            mute_event=mute_event,
         )
 
         self.meeting_capture_thread.daemon = True
@@ -1384,13 +1406,9 @@ class FluentAIGUI:
         self.meeting_mode_active = True
         self._meeting_direction_label = f"{src_lang.upper()}→{dst_lang.upper()}"
 
-        # Warn about a feedback loop if output goes to a non-virtual device
-        # (physical speakers the mic can hear -> the translation gets recaptured
-        # and re-translated). BlackHole / virtual devices avoid this.
-        selected = next(
-            (d for d in self._meeting_device_list if d["name"] == device_name), None
-        )
-        is_virtual = bool(selected and selected["is_blackhole"])
+        # Fresh transcript: live caption (original) + accumulating translation.
+        self.original_text.delete(1.0, tk.END)
+        self.translated_text.delete(1.0, tk.END)
 
         # Update UI
         self.meeting_toggle_btn.config(text="■ Stop Meeting Mode", bg="#e74c3c")
@@ -1437,12 +1455,16 @@ class FluentAIGUI:
         self.record_btn.config(state=tk.NORMAL)
         self.direction_combo.config(state="readonly")
 
+    def _on_meeting_partial(self, committed: str, tentative: str):
+        """Live caption from the streaming transcriber (runs off the main thread)."""
+        self.message_queue.put(("meeting_caption", committed, tentative))
+
     def _on_meeting_translation_result(
         self, original: str, translated: str, latency_ms: float | None = None
     ):
-        """Called from the speak stage per translation. Posts to message_queue."""
-        self.message_queue.put(("original_text", original))
-        self.message_queue.put(("translated_text", translated))
+        """Called per spoken sentence. The original caption is handled by the
+        live partial stream, so here we only append the translated sentence."""
+        self.message_queue.put(("meeting_translation_append", translated))
         # Show the last segment's end-to-end latency in the meeting status.
         if latency_ms is not None and self.meeting_mode_active:
             label = self._meeting_direction_label
