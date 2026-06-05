@@ -78,6 +78,52 @@ def synthesize_to_numpy(text: str, lang: str, sample_rate: int = 44100) -> np.nd
     return _synthesize_pyttsx3(text, sample_rate)
 
 
+def speak_to_device(
+    text: str,
+    lang: str,
+    device_name: str | None = None,
+    blocking: bool = True,
+) -> bool:
+    """Speak *text* by streaming macOS `say` straight to an audio device.
+
+    Unlike ``synthesize_to_numpy`` (which renders the whole clip to a file
+    first, ~1s), this starts audio in a few milliseconds because `say`
+    synthesizes as it plays. Routes to *device_name* (a name prefix as shown by
+    ``say -a '?'`` / sounddevice) when given, else the system default.
+
+    Args:
+        text: Text to speak.
+        lang: Language code, used to pick the voice.
+        device_name: Output device name prefix, or None for the default.
+        blocking: If True, wait until playback finishes (so callers can
+            serialize utterances); if False, return immediately.
+
+    Returns:
+        True if `say` was launched/completed; False on non-macOS, empty text,
+        or failure (callers can fall back to ``synthesize_to_numpy``).
+    """
+    if platform.system() != "Darwin" or not text.strip():
+        return False
+
+    cmd = ["say"]
+    voice = _resolve_voice(lang)
+    if voice:
+        cmd.append(f"--voice={voice}")
+    if device_name:
+        cmd.append(f"--audio-device={device_name}")
+    cmd.append(text)
+
+    try:
+        if blocking:
+            subprocess.run(cmd, capture_output=True, timeout=120)
+        else:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception as exc:
+        logger.error("Streaming TTS (say --audio-device) failed: %s", exc)
+        return False
+
+
 def _synthesize_macos(text: str, lang: str, sample_rate: int) -> np.ndarray:
     """macOS `say` fast path → AIFF → pydub → numpy float32."""
     from pydub import AudioSegment as PydubSegment

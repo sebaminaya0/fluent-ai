@@ -52,6 +52,37 @@ def test_returns_none_for_unsupported_language(monkeypatch):
     assert tts_engine._resolve_voice("ja") is None
 
 
+def test_speak_to_device_builds_streaming_command(monkeypatch):
+    _patch_voices(monkeypatch, SAMPLE_SAY_OUTPUT)
+    monkeypatch.setattr(tts_engine.platform, "system", lambda: "Darwin")
+    # Warm the voice cache from the fake list before swapping in the capturer,
+    # so the only subprocess.run call we capture is the speak command.
+    assert tts_engine._resolve_voice("es") == "Mónica"
+
+    captured = {}
+    monkeypatch.setattr(
+        tts_engine.subprocess, "run", lambda cmd, **k: captured.__setitem__("cmd", cmd)
+    )
+
+    ok = tts_engine.speak_to_device("Hola", "es", device_name="BlackHole 2ch")
+    assert ok is True
+    cmd = captured["cmd"]
+    assert cmd[0] == "say"
+    assert "--voice=Mónica" in cmd
+    assert "--audio-device=BlackHole 2ch" in cmd
+    assert cmd[-1] == "Hola"
+
+
+def test_speak_to_device_non_macos_returns_false(monkeypatch):
+    monkeypatch.setattr(tts_engine.platform, "system", lambda: "Linux")
+    assert tts_engine.speak_to_device("hi", "en") is False
+
+
+def test_speak_to_device_empty_text_returns_false(monkeypatch):
+    monkeypatch.setattr(tts_engine.platform, "system", lambda: "Darwin")
+    assert tts_engine.speak_to_device("   ", "en") is False
+
+
 def teardown_module(module):
     # Don't leak the fake voice cache into other tests.
     tts_engine._installed_voices.cache_clear()
