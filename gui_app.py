@@ -13,9 +13,9 @@ import speech_recognition as sr
 
 from audio_capture_thread import AudioCaptureThread
 from fluentai.app_controller import TranslationController
-from fluentai.asr_translation_synthesis_thread import ASRTranslationSynthesisThread
 from fluentai.audio_utils import apply_automatic_gain_control, normalize_audio_rms
 from fluentai.blackhole_reproduction_thread import BlackHoleReproductionThread
+from fluentai.meeting_pipeline import MeetingASRThread, MeetingSpeakThread
 from fluentai.model_loader import LazyModelLoader
 from fluentai.transcription import transcribe_long_audio
 from fluentai.tts_engine import synthesize_to_numpy
@@ -109,10 +109,10 @@ class FluentAIGUI:
         # Meeting Mode state
         self.meeting_mode_active = False
         self.meeting_capture_thread: AudioCaptureThread | None = None
-        self.meeting_asr_thread: ASRTranslationSynthesisThread | None = None
-        self.meeting_output_thread: BlackHoleReproductionThread | None = None
+        self.meeting_asr_thread: MeetingASRThread | None = None
+        self.meeting_speak_thread: MeetingSpeakThread | None = None
         self.meeting_asr_queue: queue.Queue | None = None
-        self.meeting_synthesis_queue: queue.Queue | None = None
+        self.meeting_speak_queue: queue.Queue | None = None
         self.meeting_output_device_var = tk.StringVar(value="")
         self.meeting_status_text = tk.StringVar(value="Stopped")
         self._meeting_device_list: list[dict] = []
@@ -1333,45 +1333,48 @@ class FluentAIGUI:
             return
 
         src_lang, dst_lang = self.get_source_and_target_from_direction()
+        device_name = self.meeting_output_device_var.get()
 
+        # Streaming pipeline: capture -> ASR/translate stage -> speak stage.
+        # The speak stage streams `say` straight to the output device, and the
+        # ASR stage works on the next utterance while the current one plays.
         self.meeting_asr_queue = queue.Queue()
-        self.meeting_synthesis_queue = queue.Queue()
+        self.meeting_speak_queue = queue.Queue()
 
         self.meeting_capture_thread = AudioCaptureThread(
             asr_queue=self.meeting_asr_queue,
             silence_threshold_ms=200,
         )
-        self.meeting_asr_thread = ASRTranslationSynthesisThread(
-            queue_in=self.meeting_asr_queue,
-            queue_out=self.meeting_synthesis_queue,
+        self.meeting_asr_thread = MeetingASRThread(
+            asr_queue=self.meeting_asr_queue,
+            speak_queue=self.meeting_speak_queue,
+            controller=self.controller,
             src_lang=src_lang,
             dst_lang=dst_lang,
             whisper_model="base",
-            callback=self._on_meeting_translation_result,
         )
-        self.meeting_output_thread = BlackHoleReproductionThread(
-            output_device=device_index,
-            input_queue=self.meeting_synthesis_queue,
+        self.meeting_speak_thread = MeetingSpeakThread(
+            speak_queue=self.meeting_speak_queue,
+            device_name=device_name,
+            dst_lang=dst_lang,
+            callback=self._on_meeting_translation_result,
         )
 
         self.meeting_capture_thread.daemon = True
-        self.meeting_asr_thread.daemon = True
 
         # Propagate the session id so meeting-mode activity is logged too.
         if self.session_id:
             self.meeting_capture_thread.set_session_id(self.session_id)
             self.meeting_asr_thread.set_session_id(self.session_id)
-            self.meeting_output_thread.set_session_id(self.session_id)
 
         self.meeting_capture_thread.start()
         self.meeting_asr_thread.start()
-        self.meeting_output_thread.start()
+        self.meeting_speak_thread.start()
 
         self.meeting_mode_active = True
 
         # Update UI
         self.meeting_toggle_btn.config(text="■ Stop Meeting Mode", bg="#e74c3c")
-        device_name = self.meeting_output_device_var.get()
         self.meeting_status_text.set(
             f"LIVE | {src_lang.upper()} → {dst_lang.upper()} to {device_name}"
         )
@@ -1390,12 +1393,12 @@ class FluentAIGUI:
         if self.meeting_asr_thread:
             self.meeting_asr_thread.stop()
             self.meeting_asr_thread = None
-        if self.meeting_output_thread:
-            self.meeting_output_thread.stop()
-            self.meeting_output_thread = None
+        if self.meeting_speak_thread:
+            self.meeting_speak_thread.stop()
+            self.meeting_speak_thread = None
 
         self.meeting_asr_queue = None
-        self.meeting_synthesis_queue = None
+        self.meeting_speak_queue = None
         self.meeting_mode_active = False
 
         # Close overlay
