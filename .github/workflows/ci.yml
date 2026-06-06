@@ -34,28 +34,16 @@ jobs:
     
     - name: Sync dependencies with uv
       run: |
-        uv sync --dev
-    
+        uv sync --extra dev
+
     - name: Lint with ruff
       run: |
         uv run ruff check .
-    
+
     - name: Format check with ruff
       run: |
         uv run ruff format --check .
-    
-    - name: Run VAD unit tests
+
+    - name: Run test suite
       run: |
-        uv run python -m pytest tests/test_silence_detection.py -v
-    
-    - name: Run ASR round-trip tests (initialization)
-      run: |
-        uv run python -m pytest tests/test_asr_roundtrip.py::TestASRRoundTrip::test_asr_thread_initialization -v
-    
-    - name: Run model loading tests
-      run: |
-        uv run python -m pytest tests/test_lazy_model_loader.py -v
-    
-    - name: Run benchmark tests
-      run: |
-        uv run python -m pytest tests/test_benchmarks.py -v
+        uv run python -m pytest tests/ -v

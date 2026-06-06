@@ -18,14 +18,14 @@ live captions and per-sentence audio, plus **mic-in-use auto-detection**
 is a macOS menu-bar agent + branded floating overlay — see
 [`docs/roadmap.md`](docs/roadmap.md).
 
-- **Primary interface**: Tkinter GUI (`gui_app.py`), with a floating Meeting
-  Mode overlay (`fluentai/ui/meeting_overlay.py`)
-- **TTS**: macOS `say` fast path (~100ms) in the streaming pipeline; gTTS /
-  pyttsx3 elsewhere
+- **Primary interface**: Tkinter GUI (`gui_app.py`, ~1,520 lines), with a
+  floating Meeting Mode overlay (`fluentai/ui/meeting_overlay.py`)
+- **TTS**: macOS `say` fast path (~100ms to first audio) in the streaming
+  pipeline; `synthesize_to_numpy` + `sounddevice` is the non-macOS fallback
 - **Python version**: 3.13+ · **Package manager**: `uv` · **Version**: 0.2.0
 - **Platform**: macOS-first (mic detection + `say` are macOS-only; degrade
   gracefully elsewhere)
-- **Database**: DuckDB (`translation_logs.duckdb`)
+- **Database**: DuckDB (`translation_logs.duckdb`), best-effort logging
 
 ---
 
@@ -51,7 +51,7 @@ fluent-ai/
 │   ├── tts_engine.py           # TTS: macOS `say` fast path + synthesize-to-numpy fallback
 │   ├── meeting_detector.py     # Mic-in-use auto-detection (CoreAudio, debounced MicMonitor)
 │   ├── meeting_pipeline.py     # Two-stage streaming Meeting Mode (MeetingASRThread → MeetingSpeakThread)
-│   ├── streaming_asr.py        # StreamingTranscriber: live captions via LocalAgreement-2
+│   ├── streaming_asr.py        # StreamingASR: live captions + LocalAgreement-2
 │   ├── asr_translation_synthesis_thread.py  # Legacy single ASR → Translation → TTS thread
 │   ├── blackhole_reproduction_thread.py     # Audio output thread (jitter buffer)
 │   ├── ui/
@@ -63,16 +63,20 @@ fluent-ai/
 ├── conf/
 │   └── languages.yaml          # Whisper/TTS language code mappings
 │
-├── tests/                      # pytest test suite (green: 72 passed, 3 skipped)
+├── tests/                      # pytest test suite (green: 72 passed, 3 skipped, 75 collected)
 │   ├── test_meeting_detector.py
 │   ├── test_meeting_pipeline.py
 │   ├── test_streaming_asr.py
 │   ├── test_tts_engine.py
 │   ├── test_app_controller.py
 │   ├── test_lazy_model_loader.py
-│   ├── test_benchmarks.py
+│   ├── test_transcription.py
+│   ├── test_audio_utils.py
+│   ├── test_loader_metadata.py
+│   ├── test_asr_roundtrip.py
 │   ├── test_silence_detection.py
-│   └── test_asr_roundtrip.py
+│   ├── test_benchmarks.py
+│   └── conftest.py
 │
 ├── docs/                       # Architecture, usage, and roadmap docs
 ├── examples/                   # Audio device setup examples
@@ -118,7 +122,27 @@ uv run live_monitor.py --db
 # Initialize / view database
 uv run init_database.py
 uv run view_database.py [session_id]
+
+# Mic-in-use detection demo (prints call start/end events)
+uv run python -m fluentai.meeting_detector
 ```
+
+---
+
+## Translating: from-mic vs from-file modes
+
+The translator has **two distinct flows**: you can speak into the mic, or you
+can pass in an existing recording/file. The choice is made at the entry point,
+not in the GUI.
+
+| Mode | Entry point | Typical use |
+|---|---|---|
+| **Live mic** | `uv run gui_app.py` → Meeting Mode, or `uv run main_whisper.py` | Real-time conversation / meeting |
+| **From file / WAV bytes** | `lang=` pipeline modules (`meeting_pipeline.py`, `asr_translation_synthesis_thread.py`) | Post-call replay, tests, proof-of-concept clips |
+
+The GUI exposes only the **live-mic** path today; the **from-file** path is
+available to library/runtime callers via `fluentai.meeting_pipeline` and the
+lower-level ASR→translation threads.
 
 ---
 
@@ -143,7 +167,7 @@ uv run mypy fluentai/
 ### Testing
 
 ```bash
-# Run all tests
+# Run all tests (green: 72 passed, 3 skipped, 75 collected)
 uv run pytest tests/
 
 # Run a specific file
@@ -152,41 +176,47 @@ uv run pytest tests/test_lazy_model_loader.py
 # Run with verbose output
 uv run pytest tests/ -v
 
+# Collect only (fast sanity check)
+uv run pytest tests/ --collect-only
+
 # Run benchmarks
-uv run pytest tests/test_benchmarks.py
+uv run pytest tests/test_benchmarks.py -v -s
 ```
 
 Tests use `pytest` and `pytest-asyncio`. New code should pass before merging.
 
-> **Baseline:** the suite is **green** — `uv run pytest tests/` reports
-> **72 passed, 3 skipped** (the skips are environment-gated, e.g. hardware audio
-> devices). `ruff check .` passes too. Keep it that way: run both before
-> committing.
+> The suite is **green**: `uv run pytest tests/` reports **72 passed, 3 skipped**
+> (skips are environment-gated, e.g. hardware audio devices). `ruff check .`
+> passes too. Keep it that way: run both before committing.
+>
+> Note: `tests/test_loader_metadata.py` (non-mocked) passes; the full suite
+> coverage now includes audio utils, meeting detector, streaming ASR, TTS
+> engine, transcription, and benchmarks.
 
 ---
 
 ## Architecture
 
-### Processing Pipeline
+### Legacy single-thread path (basic translator)
 
 ```
 Microphone
-    ↓
-audio_capture_thread.py  (CircularAudioBuffer + WebRTC VAD)
-    ↓  [queue: WAV segments]
+   ↓
+audio_capture_thread.py        CircularAudioBuffer + WebRTC VAD
+   ↓  [queue: WAV segments]
 asr_translation_synthesis_thread.py
-    ├── Whisper ASR  →  transcript text
-    ├── Helsinki-NLP MarianMT  →  translated text
-    └── gTTS  →  synthesized audio
-    ↓  [queue: audio bytes]
+   ├── Whisper ASR  →  transcript text
+   ├── Helsinki-NLP MarianMT  →  translated text
+   └── gTTS  →  synthesized audio
+   ↓  [queue: audio bytes]
 blackhole_reproduction_thread.py  (JitterBuffer → sounddevice output)
-    ↓
+   ↓
 Speaker / BlackHole virtual device
 ```
 
-All inter-thread communication uses `queue.Queue` (non-blocking with timeout). The GUI orchestrates threads and receives updates via callbacks. The diagram above is the **legacy single-thread path** (`asr_translation_synthesis_thread.py`), still used by the basic translator.
+All inter-thread communication uses `queue.Queue` (non-blocking with timeout).
 
-### Meeting Mode (streaming, low-latency)
+### Meeting Mode (streaming, low-latency) — current primary path
 
 Meeting Mode is the current primary path. It's a **two-stage pipeline**
 (`fluentai/meeting_pipeline.py`) so the next utterance is transcribed while the
@@ -207,8 +237,8 @@ Output device / BlackHole
   consecutive passes agree on (**LocalAgreement-2**) — stable, flicker-free
   live text. Each completed sentence is translated and spoken immediately.
 - **Streaming TTS** (`fluentai/tts_engine.py`): macOS `say --audio-device`
-  starts audio in ~ms; `synthesize_to_numpy` + `sounddevice` is the non-macOS
-  fallback.
+  starts audio in ~100ms; `synthesize_to_numpy` + `sounddevice` is the
+  non-macOS fallback.
 - **Anti-hallucination**: Whisper runs with `condition_on_previous_text=False`,
   `temperature=0.0`, and no-speech/compression-ratio thresholds to curb looping
   on short clips.
@@ -222,9 +252,7 @@ macOS-only, dependency-free (pure ctypes into CoreAudio). Polls
 `kAudioDevicePropertyDeviceIsRunningSomewhere` on the default input device —
 True whenever *any* app grabs the mic (Zoom, Teams, browser Google Meet). A
 debounced `MicMonitor` thread turns that into `on_call_started` /
-`on_call_ended` callbacks (default 3s debounce each way). `is_available()` is
-False off macOS and the monitor no-ops. The state machine (`_Debounce`) is pure
-and deterministically unit-tested.
+`on_call_ended` callbacks (default 3s debounce each way).
 
 ### Model Loading (`fluentai/model_loader.py`)
 
@@ -256,10 +284,9 @@ Both tables are auto-created on first connection. Use `view_database.py` for ins
 
 Key fields: `session_id`, `step_type`, `latency_ms`, `model_used`, `errors[]`, `metadata` (JSON).
 
-> **Note:** DB logging is active in `gui_app.py` (each completed translation is
-> recorded via `log_complete_translation`, and Meeting Mode threads receive the
-> GUI's `session_id`), in `live_monitor.py --db`, and in the pipeline threads.
-> Logging is best-effort: if the logger can't initialize, the GUI still runs.
+> Logging is best-effort: if the logger can't initialize, the rest of the
+> app still runs. Only `database_logger.py` writes to DuckDB — no other module
+> should query or write the DB directly.
 
 ---
 
@@ -267,13 +294,13 @@ Key fields: `session_id`, `step_type`, `latency_ms`, `model_used`, `errors[]`, `
 
 The application supports bidirectional translation between:
 
-| Pair | Model |
+| Pair | Models |
 |---|---|
-| Spanish ↔ English | `Helsinki-NLP/opus-mt-es-en`, `opus-mt-en-es` |
-| Spanish ↔ German | `Helsinki-NLP/opus-mt-es-de`, `opus-mt-de-es` |
-| Spanish ↔ French | `Helsinki-NLP/opus-mt-es-fr`, `opus-mt-fr-es` |
-| English ↔ German | `Helsinki-NLP/opus-mt-en-de`, `opus-mt-de-en` |
-| English ↔ French | `Helsinki-NLP/opus-mt-en-fr`, `opus-mt-fr-en` |
+| 🇪🇸 Spanish ↔ 🇺🇸 English | `Helsinki-NLP/opus-mt-es-en`, `opus-mt-en-es` |
+| 🇪🇸 Spanish ↔ 🇩🇪 German | `Helsinki-NLP/opus-mt-es-de`, `opus-mt-de-es` |
+| 🇪🇸 Spanish ↔ 🇫🇷 French | `Helsinki-NLP/opus-mt-es-fr`, `opus-mt-fr-es` |
+| 🇺🇸 English ↔ 🇩🇪 German | `Helsinki-NLP/opus-mt-en-de`, `opus-mt-de-en` |
+| 🇺🇸 English ↔ 🇫🇷 French | `Helsinki-NLP/opus-mt-en-fr`, `opus-mt-fr-en` |
 
 Language codes are configured in `conf/languages.yaml`.
 
@@ -324,18 +351,14 @@ Language codes are configured in `conf/languages.yaml`.
 **Steps**:
 1. Install `uv` and Python 3.13
 2. Install system deps: `libportaudio2`, `libasound2-dev`
-3. `uv sync` all dependencies
+3. `uv sync --extra dev` (installs the `dev` optional extra: pytest, ruff, etc.)
 4. `ruff check .` — must pass
 5. `ruff format --check .` — must pass
-6. Run `tests/test_silence_detection.py`
-7. Run `tests/test_asr_roundtrip.py`
-8. Run `tests/test_lazy_model_loader.py`
-9. Run `tests/test_benchmarks.py`
+6. `uv run python -m pytest tests/ -v` — the full suite must pass
 
-Both lint and the test suite currently pass (see **Testing**), so CI is a real
-gate again — keep `ruff check .` and `uv run pytest tests/` green before pushing.
-Note the `.github/workflows/ci.yml` step list predates the streaming Meeting
-Mode tests; the local `uv run pytest tests/` run is the source of truth.
+CI now runs the **entire** `tests/` suite (not a hand-picked subset), so it
+matches `uv run pytest tests/` locally. Both lint and tests currently pass —
+keep `ruff check .` and `uv run pytest tests/` green before pushing.
 
 ---
 
@@ -350,7 +373,7 @@ Mode tests; the local `uv run pytest tests/` run is the source of truth.
 
 ### Adding a New Translation Step / Processing Stage
 
-1. Create a new `threading.Thread` subclass following the pattern in `asr_translation_synthesis_thread.py`.
+1. Create a new `threading.Thread` subclass following the pattern in `asr_translation_synthesis_thread.py` or `meeting_pipeline.py`.
 2. Add a new `queue.Queue` for its input/output.
 3. Wire it in `gui_app.py` alongside existing threads.
 4. Add logging calls via `database_logger.py`.
@@ -368,8 +391,6 @@ Mode tests; the local `uv run pytest tests/` run is the source of truth.
 uv run pytest tests/test_benchmarks.py -v -s
 ```
 
-Results include ASR latency, translation latency, TTS latency, and end-to-end latency per model size.
-
 ---
 
 ## External Dependencies Summary
@@ -379,10 +400,9 @@ Results include ASR latency, translation latency, TTS latency, and end-to-end la
 | `openai-whisper` | Offline ASR (speech → text) |
 | `transformers` | Helsinki-NLP MarianMT translation models |
 | `torch` | PyTorch runtime for ML models |
-| macOS `say` | Fast streaming TTS in Meeting Mode (built-in, no dep) |
-| `gTTS` / `pyttsx3` | Text-to-Speech fallbacks (non-streaming / non-macOS) |
+| `gTTS` | Google Text-to-Speech synthesis (legacy path only) |
+| `say` (macOS) | Fast streaming TTS in Meeting Mode (built-in, no dep) |
 | `sounddevice` / `pyaudio` | Audio capture and playback |
-| `soundfile` | Decode WAV bytes → numpy (no temp files) |
 | `webrtcvad` | Voice Activity Detection |
 | `pydub` | Audio manipulation (format conversion, normalization) |
 | `librosa` | Audio feature extraction |
