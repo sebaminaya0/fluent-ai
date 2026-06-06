@@ -72,3 +72,18 @@ app + menu-bar icon. Keep whitespace generous (Granola-minimal).
 - Streaming Meeting Mode: live captions (LocalAgreement-2) + per-sentence audio.
 - Low-latency streaming TTS (`say --audio-device`), half/full-duplex handling.
 - Whisper `small` + 700ms segmentation for quality; feedback-loop fix.
+- **Automated audio routing** (`fluentai/audio_setup.py`): one-click BlackHole
+  install (signed pkg, single admin prompt) + CoreAudio default-input switching
+  so the remote party hears only the translation; restored on stop/quit. In-app
+  **Test setup** verification. See [audio-routing.md](audio-routing.md).
+- **Auto-start on call detection**: `MicMonitor` wired into the GUI with a "Call
+  detected — start translation?" prompt and an Auto-detect toggle.
+- **Design pass**: brand palette + helpers (`fluentai/ui/theme.py`), restyled
+  overlay and key buttons, lowercase `fluent ai` wordmark. See [design.md](design.md).
+
+## Backlog (later)
+- **Captions for the remote party** — share the live translation text with the
+  other side (e.g. a shareable browser caption page or screen-share surface).
+  Deferred per product decision; audio routing comes first.
+- Menu-bar agent (`rumps`) + headless pipeline (workstreams 2–3 above).
+- Full main-window redesign + dark mode (palette ready).

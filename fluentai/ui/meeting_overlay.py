@@ -1,10 +1,17 @@
 """Floating always-on-top overlay shown during Meeting Mode.
 
 Extracted from ``gui_app.py`` as a self-contained widget so it can be reused
-and tested independently of the main ``FluentAIGUI`` window.
+and tested independently of the main ``FluentAIGUI`` window. Styled with the
+fluent ai design system (see ``fluentai/ui/theme.py``).
 """
 
 import tkinter as tk
+
+from fluentai.ui import theme
+
+_BG = theme.DARK_SURFACE
+_TEXT = theme.DARK_TEXT
+_MUTED = theme.DARK_MUTED
 
 
 class MeetingOverlay:
@@ -14,24 +21,24 @@ class MeetingOverlay:
         self.win = tk.Toplevel(root)
         self.win.overrideredirect(True)
         self.win.attributes("-topmost", True)
-        self.win.attributes("-alpha", 0.92)
-        self.win.geometry("320x90+80+80")
-        self.win.configure(bg="#1a1a2e")
+        self.win.attributes("-alpha", 0.96)
+        self.win.geometry("340x104+80+80")
+        self.win.configure(bg=_BG)
 
         # Drag state
         self._drag_x = 0
         self._drag_y = 0
 
-        # ── Header row: drag handle + direction label ──
-        header = tk.Frame(self.win, bg="#1a1a2e")
-        header.pack(fill=tk.X, padx=8, pady=(6, 2))
+        # ── Header row: drag handle + LIVE dot + wordmark + direction ──
+        header = tk.Frame(self.win, bg=_BG)
+        header.pack(fill=tk.X, padx=14, pady=(10, 2))
 
         drag_handle = tk.Label(
             header,
-            text="≡",
-            font=("Arial", 12),
-            bg="#1a1a2e",
-            fg="#555577",
+            text="⠿",
+            font=theme.font(12),
+            bg=_BG,
+            fg=_MUTED,
             cursor="fleur",
         )
         drag_handle.pack(side=tk.LEFT)
@@ -39,30 +46,38 @@ class MeetingOverlay:
         drag_handle.bind("<B1-Motion>", self._on_drag_motion)
 
         self._dot_label = tk.Label(
-            header, text="●", font=("Arial", 10), bg="#1a1a2e", fg="#27ae60"
+            header, text="●", font=theme.font(10), bg=_BG, fg=theme.ACCENT
         )
-        self._dot_label.pack(side=tk.LEFT, padx=(6, 4))
+        self._dot_label.pack(side=tk.LEFT, padx=(8, 4))
+
+        tk.Label(
+            header,
+            text="fluent ai",
+            font=theme.font(11, "bold"),
+            bg=_BG,
+            fg=theme.PRIMARY,
+        ).pack(side=tk.LEFT)
 
         tk.Label(
             header,
             text=direction_text,
-            font=("Arial", 10, "bold"),
-            bg="#1a1a2e",
-            fg="#ecf0f1",
-        ).pack(side=tk.LEFT)
+            font=theme.font(10),
+            bg=_BG,
+            fg=_MUTED,
+        ).pack(side=tk.RIGHT)
 
         # ── Translation text ──
         self._text_label = tk.Label(
             self.win,
-            text="Waiting for speech...",
-            font=("Arial", 10),
-            bg="#1a1a2e",
-            fg="#27ae60",
-            wraplength=300,
+            text="Waiting for speech…",
+            font=theme.font(13),
+            bg=_BG,
+            fg=_TEXT,
+            wraplength=312,
             justify=tk.LEFT,
             anchor=tk.W,
         )
-        self._text_label.pack(fill=tk.X, padx=12, pady=(0, 6))
+        self._text_label.pack(fill=tk.BOTH, expand=True, padx=14, pady=(2, 12))
 
         # Start pulsing dot animation
         self._dot_visible = True
@@ -72,7 +87,7 @@ class MeetingOverlay:
         if not self.win.winfo_exists():
             return
         self._dot_visible = not self._dot_visible
-        color = "#27ae60" if self._dot_visible else "#1a1a2e"
+        color = theme.ACCENT if self._dot_visible else _BG
         self._dot_label.config(fg=color)
         self.win.after(600, self._animate_dot)
 
@@ -87,7 +102,7 @@ class MeetingOverlay:
 
     def update_text(self, text: str):
         if self.win.winfo_exists():
-            display = text[:50] + "…" if len(text) > 50 else text
+            display = text[:80] + "…" if len(text) > 80 else text
             self._text_label.config(text=display)
 
     def close(self):
