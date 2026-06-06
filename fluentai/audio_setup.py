@@ -458,13 +458,59 @@ def sounddevice_input_index(name_substring: str) -> int | None:
     return None
 
 
+# Inputs that are NOT a real microphone — never capture or restore to these.
+_VIRTUAL_INPUT_HINTS = ("blackhole", "aggregate", "multi-output", "loopback")
+# Preferred fallback mics, in order, when the current default is unusable.
+_FALLBACK_MIC_PREFS = ("MacBook Pro Microphone", "MacBook", "AirPods", "Microphone")
+
+
+def _is_real_mic_name(name: str) -> bool:
+    low = name.lower()
+    return bool(name) and not any(h in low for h in _VIRTUAL_INPUT_HINTS)
+
+
+def _resolve_real_mic() -> tuple[int | None, str]:
+    """(sounddevice index, name) of a real microphone — never BlackHole.
+
+    Uses the current default input if it's a real mic; otherwise (e.g. the
+    default is stuck on BlackHole from a prior run) picks the best physical mic.
+    This is what we capture from, and what we restore the default to — so a
+    leftover BlackHole default gets self-healed instead of perpetuated.
+    """
+    try:
+        import sounddevice as sd
+
+        devices = list(sd.query_devices())
+        # 1) current default input, if it's a real mic
+        default_idx, default_name = _default_input_sounddevice_index()
+        if _is_real_mic_name(default_name):
+            return default_idx, default_name
+
+        # 2) fallback: first real input matching our preferences, else any real input
+        real_inputs = [
+            (i, d.get("name", ""))
+            for i, d in enumerate(devices)
+            if d.get("max_input_channels", 0) > 0
+            and _is_real_mic_name(d.get("name", ""))
+        ]
+        for pref in _FALLBACK_MIC_PREFS:
+            for i, name in real_inputs:
+                if pref.lower() in name.lower():
+                    return i, name
+        if real_inputs:
+            return real_inputs[0]
+    except Exception as e:  # pragma: no cover - no audio backend
+        logger.warning("Could not resolve a real mic: %s", e)
+    return None, ""
+
+
 def enter_meeting_routing() -> RoutingState:
     """Switch the system default input to BlackHole; keep capturing the real mic.
 
-    Captures the real mic's sounddevice index *before* switching. Leaves the
-    default output untouched (so the user still hears the other person). If
-    BlackHole is missing or we're off macOS, returns an inactive state and
-    changes nothing.
+    Resolves the real mic (never BlackHole) BEFORE switching, and saves *that* as
+    the restore target so we never leave the default stuck on BlackHole. Leaves
+    the default output untouched (so the user still hears the other person). If
+    BlackHole is missing or we're off macOS, returns an inactive state.
     """
     if not _IS_MACOS:
         return RoutingState(None, "", None, None, active=False)
@@ -473,15 +519,24 @@ def enter_meeting_routing() -> RoutingState:
     # list (BlackHole may have just been installed this session).
     reinitialize_portaudio()
 
-    # Resolve the real mic BEFORE we change the default.
-    real_mic_index, real_mic_name = _default_input_sounddevice_index()
-    saved_input = get_default_input_id()
+    # Resolve a REAL mic (never BlackHole) to capture from and to restore to.
+    real_mic_index, real_mic_name = _resolve_real_mic()
+    real_mic_id = find_device_id_by_name(real_mic_name) if real_mic_name else None
+    # Restore target: the real mic. Falls back to whatever the default was only
+    # if we somehow couldn't find a real mic (better than nothing).
+    saved_input = real_mic_id if real_mic_id is not None else get_default_input_id()
     blackhole_id = find_device_id_by_name(BLACKHOLE_DEVICE_NAME)
 
     if blackhole_id is None:
         logger.warning("BlackHole not found; routing not applied")
         return RoutingState(
             real_mic_index, real_mic_name, saved_input, None, active=False
+        )
+
+    if real_mic_index is None:
+        logger.error("No real microphone found (only virtual inputs); routing aborted")
+        return RoutingState(
+            real_mic_index, real_mic_name, saved_input, blackhole_id, active=False
         )
 
     ok = set_default_input_id(blackhole_id)
