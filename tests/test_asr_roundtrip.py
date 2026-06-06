@@ -12,6 +12,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -213,7 +214,14 @@ class TestASRRoundTrip(unittest.TestCase):
             thread.join(timeout=5)
 
     def test_asr_thread_initialization(self):
-        """Test ASR thread initialization with different language pairs."""
+        """Test ASR thread initialization with different language pairs.
+
+        Model loading is mocked so the test exercises the constructor and the
+        start/stop lifecycle without downloading the real Whisper / Helsinki-NLP
+        models (which makes it slow, network-dependent, and flaky on cold CI
+        runners — ``whisper.load_model`` blocks uninterruptibly during the
+        download, so ``stop()`` can't take effect within the join timeout).
+        """
         # Test different language configurations
         test_configs = [
             {"src_lang": "es", "dst_lang": "en"},
@@ -221,6 +229,7 @@ class TestASRRoundTrip(unittest.TestCase):
             {"src_lang": "en", "dst_lang": "en"},
         ]
 
+        module = "fluentai.asr_translation_synthesis_thread"
         for config in test_configs:
             with self.subTest(config=config):
                 q_in = queue.Queue()
@@ -239,11 +248,15 @@ class TestASRRoundTrip(unittest.TestCase):
                 self.assertEqual(thread.dst_lang, config["dst_lang"])
                 self.assertEqual(thread.whisper_model_name, "base")
 
-                # Test thread can be started and stopped
-                thread.start()
-                time.sleep(0.1)  # Give it a moment to initialize
-                thread.stop()
-                thread.join(timeout=5)
+                # Test thread can be started and stopped (no real model loads).
+                with (
+                    patch(f"{module}.whisper.load_model", return_value=MagicMock()),
+                    patch(f"{module}.pipeline", return_value=MagicMock()),
+                ):
+                    thread.start()
+                    time.sleep(0.1)  # Give it a moment to initialize
+                    thread.stop()
+                    thread.join(timeout=5)
 
                 self.assertFalse(thread.is_alive(), "Thread should be stopped")
 
