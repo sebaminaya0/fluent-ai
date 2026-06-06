@@ -361,9 +361,45 @@ def ensure_blackhole_installed(progress_cb=None) -> bool:
             except OSError:
                 pass
 
-    ok = is_blackhole_installed()
+    # coreaudiod takes a moment to re-register the new device after the install
+    # (the pkg may even say "restart recommended"), so poll instead of checking
+    # once. Then refresh PortAudio so the new device is visible to capture.
+    ok = _wait_for_blackhole(timeout_s=8.0)
+    if ok:
+        reinitialize_portaudio()
     _say("BlackHole installed." if ok else "BlackHole install did not complete.")
     return ok
+
+
+def _wait_for_blackhole(timeout_s: float = 8.0) -> bool:
+    """Poll until the BlackHole device appears (or timeout)."""
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if is_blackhole_installed():
+            return True
+        time.sleep(0.5)
+    return is_blackhole_installed()
+
+
+def reinitialize_portaudio() -> None:
+    """Refresh sounddevice/PortAudio's device list after the topology changes.
+
+    PortAudio snapshots the device list at init, so a device added this session
+    (e.g. BlackHole we just installed) is invisible and indices go stale —
+    causing ``Invalid Property Value`` / PaErrorCode -9986 when opening a stream.
+    Terminating and re-initializing rebuilds the list. Safe only when no stream
+    is open (we call it before starting capture).
+    """
+    try:
+        import sounddevice as sd
+
+        sd._terminate()
+        sd._initialize()
+        logger.info("PortAudio reinitialized (device list refreshed)")
+    except Exception as e:  # pragma: no cover - backend specific
+        logger.warning("PortAudio reinitialize failed: %s", e)
 
 
 # ── Meeting routing (enter / exit) ───────────────────────────────────────────
@@ -402,6 +438,26 @@ def _default_input_sounddevice_index() -> tuple[int | None, str]:
         return None, ""
 
 
+def sounddevice_input_index(name_substring: str) -> int | None:
+    """sounddevice index of the first INPUT device whose name matches.
+
+    Resolve by name (not a cached index) so it survives device renumbering after
+    the list changes (e.g. BlackHole being added).
+    """
+    try:
+        import sounddevice as sd
+
+        needle = name_substring.lower()
+        for i, dev in enumerate(sd.query_devices()):
+            if needle in dev.get("name", "").lower() and (
+                dev.get("max_input_channels", 0) > 0
+            ):
+                return i
+    except Exception as e:  # pragma: no cover - no audio backend
+        logger.warning("Could not resolve input device '%s': %s", name_substring, e)
+    return None
+
+
 def enter_meeting_routing() -> RoutingState:
     """Switch the system default input to BlackHole; keep capturing the real mic.
 
@@ -413,7 +469,11 @@ def enter_meeting_routing() -> RoutingState:
     if not _IS_MACOS:
         return RoutingState(None, "", None, None, active=False)
 
-    # Resolve the real mic BEFORE we change anything.
+    # Refresh PortAudio first so indices are consistent with the *current* device
+    # list (BlackHole may have just been installed this session).
+    reinitialize_portaudio()
+
+    # Resolve the real mic BEFORE we change the default.
     real_mic_index, real_mic_name = _default_input_sounddevice_index()
     saved_input = get_default_input_id()
     blackhole_id = find_device_id_by_name(BLACKHOLE_DEVICE_NAME)
