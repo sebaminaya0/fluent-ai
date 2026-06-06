@@ -350,7 +350,8 @@ Language codes are configured in `conf/languages.yaml`.
 
 **Steps**:
 1. Install `uv` and Python 3.13
-2. Install system deps: `libportaudio2`, `libasound2-dev`
+2. Install system deps: `portaudio19-dev` (provides `portaudio.h` for the
+   `pyaudio` build), `libasound2-dev`
 3. `uv sync --extra dev` (installs the `dev` optional extra: pytest, ruff, etc.)
 4. `ruff check .` — must pass
 5. `ruff format --check .` — must pass
