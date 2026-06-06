@@ -154,6 +154,23 @@ Language codes live in [`conf/languages.yaml`](./conf/languages.yaml).
 
 ---
 
+## 💬 Translating: from-mic vs from-file modes
+
+The translator has **two distinct flows**: you can speak into the mic, or you
+can pass in an existing recording/file. The choice is made at the entry point,
+not in the GUI.
+
+| Mode | Entry point | Typical use |
+|---|---|---|
+| **Live mic** | `uv run gui_app.py` → Meeting Mode, or `uv run main_whisper.py` | Real-time conversation / meeting |
+| **From file / WAV bytes** | `lang=` pipeline modules (`meeting_pipeline.py`, `asr_translation_synthesis_thread.py`) | Post-call replay, tests, proof-of-concept clips |
+
+The GUI exposes only the **live-mic** path today; the **from-file** path is
+available to library/runtime callers via `fluentai.meeting_pipeline` and the
+lower-level ASR→translation threads.
+
+---
+
 ## 🛠️ Development
 
 ```bash
@@ -174,22 +191,26 @@ should stay that way. Contributor and AI-assistant guidance lives in
 
 ```
 fluent-ai/
-├── gui_app.py                  # Main Tkinter GUI (+ Meeting Mode)
-├── main_whisper.py             # Whisper CLI
-├── live_monitor.py             # Real-time monitor (--db enables DuckDB)
-├── audio_capture_thread.py     # Mic capture + WebRTC VAD (+ partial snapshots)
+├── gui_app.py                  # Main Tkinter GUI (+ Meeting Mode overlay)
+├── main_whisper.py             # Whisper CLI entry point
+├── live_monitor.py             # Real-time monitor dashboard (--db for DuckDB)
+├── audio_capture_thread.py     # Mic capture + WebRTC VAD (+ opt-in partial snapshots)
 ├── silence_detector.py         # Silence/pause detection
 ├── init_database.py            # DuckDB schema initializer
 ├── view_database.py            # Database viewer/query tool
 ├── fluentai/                   # Installable core package
-│   ├── model_loader.py         # Lazy, LRU-cached model manager
+│   ├── model_loader.py         # Lazy-loading, LRU-cached model manager
+│   ├── meeting_detector.py     # Mic-in-use auto-detection (CoreAudio, debounced)
 │   ├── meeting_pipeline.py     # Two-stage streaming Meeting Mode
-│   ├── streaming_asr.py        # Live captions (LocalAgreement-2)
-│   ├── meeting_detector.py     # Mic-in-use auto-detection (CoreAudio)
-│   ├── tts_engine.py           # macOS `say` + fallback TTS
+│   ├── streaming_asr.py        # StreamingTranscriber + LocalAgreement-2
+│   ├── transcription.py        # Shared chunked Whisper transcription helpers
+│   ├── audio_utils.py          # Shared 16-bit PCM DSP (RMS normalize, AGC)
+│   ├── tts_engine.py           # TTS: macOS `say` fast path + numpy fallback
 │   ├── app_controller.py       # Non-UI translation/text helpers
-│   ├── database_logger.py      # DuckDB logging
-│   ├── ui/meeting_overlay.py   # Floating Meeting Mode overlay
+│   ├── database_logger.py      # DuckDB logging (best-effort, thread-safe)
+│   ├── asr_translation_synthesis_thread.py  # Legacy single-thread path
+│   ├── blackhole_reproduction_thread.py     # Jitter-buffered audio output
+│   ├── ui/meeting_overlay.py   # Floating Meeting Mode overlay widget
 │   └── cli/translate_rt.py     # Real-time translation CLI
 ├── conf/languages.yaml         # Language code mappings
 ├── docs/                       # Architecture, usage, roadmap
@@ -219,9 +240,8 @@ and shows a refined, branded floating overlay. See [`docs/roadmap.md`](./docs/ro
 
 - [x] Streaming Meeting Mode (live captions + per-sentence audio)
 - [x] Low-latency streaming TTS (`say --audio-device`) + feedback-loop fix
-- [x] Mic-in-use auto-detection (CoreAudio)
-- [ ] Menu-bar agent (`rumps`) running the detector headless
-- [ ] Decouple the pipeline from Tkinter to run under the menu bar
+- [x] Mic-in-use auto-detection (CoreAudio, `rumps` not yet in deps)
+- [ ] Decouple the pipeline from Tkinter so it can run headless
 - [ ] Overlay redesign + `fluent ai` branding (electric blue / electric green)
 - [ ] Dark mode
 - [ ] More language pairs (Italian, Portuguese, …)
