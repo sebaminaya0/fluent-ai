@@ -1408,6 +1408,17 @@ class FluentAIGUI:
                 return  # user declined or install failed
             self._refresh_output_devices()  # BlackHole now present -> auto-selected
             self.meeting_routing_state = audio_setup.enter_meeting_routing()
+            if not self.meeting_routing_state.active:
+                messagebox.showerror(
+                    "Meeting Mode",
+                    "Couldn't set up audio routing.\n\n"
+                    "No real microphone was found, or the default input couldn't "
+                    "be switched to BlackHole. Check System Settings → Sound → "
+                    "Input, then try again.",
+                )
+                audio_setup.exit_meeting_routing(self.meeting_routing_state)
+                self.meeting_routing_state = None
+                return
             capture_device = self.meeting_routing_state.real_mic_index
 
         device_index = self._selected_output_device_index()
