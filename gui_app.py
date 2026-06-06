@@ -12,14 +12,17 @@ import sounddevice as sd
 import speech_recognition as sr
 
 from audio_capture_thread import AudioCaptureThread
+from fluentai import audio_setup
 from fluentai.app_controller import TranslationController
 from fluentai.audio_utils import apply_automatic_gain_control, normalize_audio_rms
 from fluentai.blackhole_reproduction_thread import BlackHoleReproductionThread
+from fluentai.meeting_detector import MicMonitor
 from fluentai.meeting_pipeline import MeetingSpeakThread
 from fluentai.model_loader import LazyModelLoader
 from fluentai.streaming_asr import StreamingTranscriber
 from fluentai.transcription import transcribe_long_audio
-from fluentai.tts_engine import synthesize_to_numpy
+from fluentai.tts_engine import speak_to_device, synthesize_to_numpy
+from fluentai.ui import theme
 from fluentai.ui.meeting_overlay import MeetingOverlay
 from silence_detector import (
     SilenceDetectorIntegration,
@@ -119,12 +122,24 @@ class FluentAIGUI:
         self.meeting_status_text = tk.StringVar(value="Stopped")
         self._meeting_device_list: list[dict] = []
         self._meeting_overlay: MeetingOverlay | None = None
+        # Audio routing applied while a meeting is active (restored on stop/close).
+        self.meeting_routing_state: audio_setup.RoutingState | None = None
+
+        # Mic-in-use auto-detection (Granola-style "call detected" prompt).
+        self.auto_detect_var = tk.BooleanVar(value=True)
+        self.mic_monitor: MicMonitor | None = None
+        # Suppress repeated prompts during one ongoing call (reset on call end).
+        self._call_prompt_suppressed = False
 
         # Crear la interfaz
         self.create_ui()
 
         # Window close handler
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        # Start watching for calls (mic-in-use) if enabled.
+        if self.auto_detect_var.get():
+            self._start_mic_monitor()
 
         # Iniciar el monitoreo de la cola de mensajes
         self.check_message_queue()
@@ -144,19 +159,19 @@ class FluentAIGUI:
 
         title_label = tk.Label(
             title_frame,
-            text="🌍 Fluent AI Translator",
-            font=("Arial", 24, "bold"),
+            text="fluent ai",
+            font=theme.font(28, "bold"),
             bg="#f0f0f0",
-            fg="#2c3e50",
+            fg=theme.PRIMARY,
         )
         title_label.pack()
 
         subtitle_label = tk.Label(
             title_frame,
             text="Español • English • Deutsch • Français",
-            font=("Arial", 14),
+            font=theme.font(13),
             bg="#f0f0f0",
-            fg="#7f8c8d",
+            fg=theme.MUTED,
         )
         subtitle_label.pack()
 
@@ -298,6 +313,17 @@ class FluentAIGUI:
 
         self._build_meeting_panel()
         self._build_status_bar()
+
+        # ── Apply the fluent ai design system ──
+        theme.apply_theme(self.root)
+        # Flip the legacy grey base to the brand white surface in one pass.
+        theme.recolor_surfaces(self.root)
+        # Brand the key action buttons.
+        theme.style_primary_button(self.load_models_btn)
+        theme.style_primary_button(self.record_btn)
+        theme.style_secondary_button(self.play_btn)
+        theme.style_secondary_button(self.meeting_test_btn)
+        theme.style_primary_button(self.meeting_toggle_btn)
 
         # Inicializar la actualización del medidor de micrófono
         self.update_mic_level_display()
@@ -464,6 +490,32 @@ class FluentAIGUI:
         )
         setup_link.pack(side=tk.LEFT)
         setup_link.bind("<Button-1>", lambda _e: self._show_meeting_setup())
+
+        self.meeting_test_btn = tk.Button(
+            meeting_row2,
+            text="Test setup",
+            command=self._test_meeting_setup,
+            font=("Arial", 9),
+            bg="#ecf0f1",
+            fg="#2c3e50",
+            padx=8,
+            pady=2,
+            relief=tk.FLAT,
+        )
+        self.meeting_test_btn.pack(side=tk.LEFT, padx=(12, 0))
+
+        self.auto_detect_check = tk.Checkbutton(
+            meeting_row2,
+            text="Auto-detect calls",
+            variable=self.auto_detect_var,
+            command=self._toggle_auto_detect,
+            font=("Arial", 9),
+            bg="#f0f0f0",
+            fg="#555555",
+            activebackground="#f0f0f0",
+            selectcolor="#f0f0f0",
+        )
+        self.auto_detect_check.pack(side=tk.LEFT, padx=(12, 0))
 
         self.meeting_status_label = tk.Label(
             meeting_row2,
@@ -1345,12 +1397,26 @@ class FluentAIGUI:
             self.start_meeting_mode()
 
     def start_meeting_mode(self):
+        src_lang, dst_lang = self.get_source_and_target_from_direction()
+
+        # Automated audio setup (macOS): make sure BlackHole exists, route the
+        # system default input to it so the call sends our translation, and
+        # capture the user's real mic explicitly. Restored on stop/close.
+        capture_device = None
+        if audio_setup.is_macos():
+            if not self._ensure_blackhole_ready():
+                return  # user declined or install failed
+            self._refresh_output_devices()  # BlackHole now present -> auto-selected
+            self.meeting_routing_state = audio_setup.enter_meeting_routing()
+            capture_device = self.meeting_routing_state.real_mic_index
+
         device_index = self._selected_output_device_index()
         if device_index is None:
             messagebox.showerror("Meeting Mode", "No output device selected.")
+            audio_setup.exit_meeting_routing(self.meeting_routing_state)
+            self.meeting_routing_state = None
             return
 
-        src_lang, dst_lang = self.get_source_and_target_from_direction()
         device_name = self.meeting_output_device_var.get()
 
         # A virtual output (BlackHole) can't feed back into the mic, so we can
@@ -1370,6 +1436,10 @@ class FluentAIGUI:
 
         self.meeting_capture_thread = AudioCaptureThread(
             asr_queue=self.meeting_asr_queue,
+            # Capture the real mic explicitly: the system default input is now
+            # BlackHole (so the call carries our translation), so default
+            # capture would record silence.
+            device=capture_device,
             silence_threshold_ms=700,
             mute_event=mute_event,
             # Emit growing snapshots so captions stream as you speak.
@@ -1411,7 +1481,9 @@ class FluentAIGUI:
         self.translated_text.delete(1.0, tk.END)
 
         # Update UI
-        self.meeting_toggle_btn.config(text="■ Stop Meeting Mode", bg="#e74c3c")
+        self.meeting_toggle_btn.config(
+            text="■ Stop Meeting Mode", bg=theme.DANGER, activebackground="#C93C40"
+        )
         if is_virtual:
             self.meeting_status_text.set(
                 f"LIVE | {self._meeting_direction_label} to {device_name}"
@@ -1420,7 +1492,7 @@ class FluentAIGUI:
             self.meeting_status_text.set(
                 f"LIVE | {self._meeting_direction_label} | ⚠ use headphones (echo risk)"
             )
-        self.meeting_status_label.config(fg="#27ae60")
+        self.meeting_status_label.config(fg=theme.ACCENT)
         self.record_btn.config(state=tk.DISABLED)
         self.direction_combo.config(state="disabled")
 
@@ -1443,15 +1515,23 @@ class FluentAIGUI:
         self.meeting_speak_queue = None
         self.meeting_mode_active = False
 
+        # Restore the system default input device we switched to BlackHole.
+        audio_setup.exit_meeting_routing(self.meeting_routing_state)
+        self.meeting_routing_state = None
+
         # Close overlay
         if self._meeting_overlay:
             self._meeting_overlay.close()
             self._meeting_overlay = None
 
         # Restore UI
-        self.meeting_toggle_btn.config(text="● Start Meeting Mode", bg="#27ae60")
+        self.meeting_toggle_btn.config(
+            text="● Start Meeting Mode",
+            bg=theme.PRIMARY,
+            activebackground=theme.PRIMARY_HOVER,
+        )
         self.meeting_status_text.set("Stopped")
-        self.meeting_status_label.config(fg="#95a5a6")
+        self.meeting_status_label.config(fg=theme.MUTED)
         self.record_btn.config(state=tk.NORMAL)
         self.direction_combo.config(state="readonly")
 
@@ -1482,27 +1562,205 @@ class FluentAIGUI:
                 and self._meeting_overlay.update_text(translated),
             )
 
+    # ── Mic-in-use auto-detection ────────────────────────────────────────────
+
+    def _start_mic_monitor(self):
+        """Begin watching for calls (any app capturing the mic)."""
+        if self.mic_monitor is not None:
+            return
+        self.mic_monitor = MicMonitor(
+            on_call_started=self._on_call_started_bg,
+            on_call_ended=self._on_call_ended_bg,
+        )
+        self.mic_monitor.start()
+
+    def _stop_mic_monitor(self):
+        if self.mic_monitor is not None:
+            self.mic_monitor.stop()
+            self.mic_monitor = None
+
+    def _toggle_auto_detect(self):
+        if self.auto_detect_var.get():
+            self._start_mic_monitor()
+        else:
+            self._stop_mic_monitor()
+
+    def _on_call_started_bg(self):
+        # Runs on the monitor thread — marshal to the Tk main thread.
+        self.root.after(0, self._on_call_detected)
+
+    def _on_call_ended_bg(self):
+        # A new call may prompt again once this one ends.
+        self.root.after(0, lambda: setattr(self, "_call_prompt_suppressed", False))
+
+    def _on_call_detected(self):
+        """Prompt to start translation when a call is detected (main thread)."""
+        if (
+            not self.auto_detect_var.get()
+            or self.meeting_mode_active
+            or self._call_prompt_suppressed
+        ):
+            return
+        # One prompt per call; don't nag if they dismiss or while translating.
+        self._call_prompt_suppressed = True
+        if messagebox.askyesno(
+            "Call detected",
+            "A call just started. Start live translation now?",
+        ):
+            self.start_meeting_mode()
+
+    def _sounddevice_input_index(self, substring: str) -> int | None:
+        """sounddevice index of the first input device matching *substring*."""
+        needle = substring.lower()
+        for i, dev in enumerate(sd.query_devices()):
+            if needle in dev.get("name", "").lower() and (
+                dev.get("max_input_channels", 0) > 0
+            ):
+                return i
+        return None
+
+    @staticmethod
+    def _rms(samples: np.ndarray) -> float:
+        if samples.size == 0:
+            return 0.0
+        return float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
+
+    def _test_meeting_setup(self):
+        """Verify the mic and BlackHole routing without needing a real call.
+
+        1. Mic check: record the real mic and confirm we get signal.
+        2. Routing check: play a phrase to BlackHole while recording BlackHole's
+           input (it loops back), confirming the call path TTS -> BlackHole works.
+        """
+        if audio_setup.is_macos() and not audio_setup.is_blackhole_installed():
+            if not self._ensure_blackhole_ready():
+                return
+
+        results = []
+
+        # 1. Microphone
+        try:
+            mic_idx, mic_name = audio_setup._default_input_sounddevice_index()
+            self.meeting_status_text.set("Testing mic — speak now…")
+            self.root.update_idletasks()
+            rec = sd.rec(
+                int(2 * 16000),
+                samplerate=16000,
+                channels=1,
+                device=mic_idx,
+                dtype="float32",
+            )
+            sd.wait()
+            ok = self._rms(rec) > 0.005
+            results.append(
+                f"{'✅' if ok else '⚠️'} Microphone ({mic_name or 'default'}): "
+                + ("signal detected" if ok else "very quiet — speak up / check input")
+            )
+        except Exception as e:
+            results.append(f"❌ Microphone test failed: {e}")
+
+        # 2. BlackHole routing (loopback)
+        try:
+            bh_idx = self._sounddevice_input_index(audio_setup.BLACKHOLE_DEVICE_NAME)
+            if bh_idx is None:
+                results.append(
+                    "❌ BlackHole not found — install it first (Set up audio)."
+                )
+            else:
+                self.meeting_status_text.set("Testing routing…")
+                self.root.update_idletasks()
+                speak_to_device(
+                    "Testing fluent A I routing.",
+                    "en",
+                    device_name=audio_setup.BLACKHOLE_DEVICE_NAME,
+                    blocking=False,
+                )
+                rec = sd.rec(
+                    int(2.5 * 44100),
+                    samplerate=44100,
+                    channels=1,
+                    device=bh_idx,
+                    dtype="float32",
+                )
+                sd.wait()
+                ok = self._rms(rec) > 0.005
+                results.append(
+                    f"{'✅' if ok else '❌'} Translation routing (BlackHole): "
+                    + (
+                        "audio is flowing into the call path"
+                        if ok
+                        else "no audio detected"
+                    )
+                )
+        except Exception as e:
+            results.append(f"❌ Routing test failed: {e}")
+
+        self.meeting_status_text.set("Stopped")
+        messagebox.showinfo(
+            "Test setup",
+            "\n\n".join(results)
+            + "\n\nIf both pass, you're ready — start Meeting Mode and call.",
+        )
+
+    def _ensure_blackhole_ready(self) -> bool:
+        """Make sure BlackHole is installed; offer a one-click install if not.
+
+        Returns True if BlackHole is available and Meeting Mode can proceed.
+        """
+        if audio_setup.is_blackhole_installed():
+            return True
+        proceed = messagebox.askyesno(
+            "Set up audio (one time)",
+            "Fluent AI needs the free BlackHole audio device to send your "
+            "translation into calls.\n\n"
+            "Install it now? macOS will ask for your password once — "
+            "no Terminal and no reboot. It just works from then on.",
+        )
+        if not proceed:
+            return False
+
+        self.meeting_status_text.set("Installing BlackHole…")
+        self.root.update_idletasks()
+
+        def _progress(msg: str):
+            self.meeting_status_text.set(msg)
+            self.root.update_idletasks()
+
+        ok = audio_setup.ensure_blackhole_installed(progress_cb=_progress)
+        if not ok:
+            messagebox.showerror(
+                "Set up audio",
+                "BlackHole installation didn't complete.\n\n"
+                "You can install it manually (see setup instructions) "
+                "and try again.",
+            )
+            self.meeting_status_text.set("Stopped")
+            return False
+        return True
+
     def _show_meeting_setup(self):
         messagebox.showinfo(
-            "Meeting Mode Setup (one-time)",
-            "1. Install BlackHole 2ch:\n"
-            "   brew install blackhole-2ch\n"
-            "   (or download from existential.audio)\n\n"
-            "2. In your meeting app (Zoom / Meet / Teams):\n"
-            "   Settings → Audio → Microphone → BlackHole 2ch\n\n"
-            "3. In Fluent AI:\n"
-            "   - Select BlackHole 2ch as output\n"
-            "   - Choose your translation direction\n"
-            "   - Click Start Meeting Mode\n\n"
-            "4. Speak normally in the source language.\n"
-            "   Meeting participants hear your translation.\n\n"
-            "Note: Your real mic is captured by Fluent AI only.\n"
-            "      The meeting app sees BlackHole as your mic.",
+            "Meeting Mode Setup",
+            "Fluent AI sets this up for you automatically:\n\n"
+            "• BlackHole (the audio bridge) is installed on first use\n"
+            "  with one password prompt.\n"
+            "• While Meeting Mode is on, your call's microphone is\n"
+            "  switched to BlackHole and restored when you stop.\n"
+            "• Your real mic is captured by Fluent AI only — the other\n"
+            "  side hears just your translation.\n\n"
+            "Zoom / Teams only: if you previously picked a specific mic\n"
+            "in their settings, set it to 'BlackHole 2ch' (or 'Same as\n"
+            "System'). Apps like WhatsApp / FaceTime need no changes.\n\n"
+            "Then: choose your direction and click Start Meeting Mode.",
         )
 
     def on_close(self):
+        self._stop_mic_monitor()
         if self.meeting_mode_active:
             self.stop_meeting_mode()
+        # Safety net: never leave the user's default mic switched to BlackHole.
+        audio_setup.exit_meeting_routing(self.meeting_routing_state)
+        self.meeting_routing_state = None
         self.root.destroy()
 
 
